@@ -1,86 +1,51 @@
+# CEYO Protocol Specification
+
+## 1. Introduction
+Defines the CEYO artifact format and verification procedure for evidentiary records of AI system events.
+
+## 2. Terminology
+Artifact
+Record Body
+Canonicalization
+Integrity Fields
+Verification Key
+
+## 3. Artifact Envelope
+
+Artifact Structure:
+
 {
   "product": "CEYO",
-  "envelope_version": "1.0",
-  "artifact_schema": {
-    "name": "ceyo.artifact",
-    "version": "1.0"
-  },
-
-  "artifact_id": "ceyo_art_01HZY8Y3Z9JQ3W6K5Z9H5E9F2A",
-  "created_at": "2026-03-05T18:20:11Z",
-
-  "body": {
-    "event": {
-      "event_id": "evt_01HZY8Y3Z9JQ3W6K5Z9H5E9F2A",
-      "type": "inference",
-      "occurred_at": "2026-03-05T18:20:10Z",
-      "request_id": "req_8b8e6f3d-0f7e-4f0d-9c1a-1c7d9a1f6c9c"
-    },
-
-    "policy": {
-      "id": "POL-001",
-      "version": "1.0",
-      "hash": {
-        "alg": "SHA-256",
-        "value_b64u": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        "covers": "policy_document_bytes"
-      }
-    },
-
-    "disclosure_tier": "public",
-
-    "capture": {
-      "input_ref_hash": {
-        "alg": "SHA-256",
-        "value_b64u": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-        "covers": "policy_scoped_input_representation"
-      },
-      "output_ref_hash": {
-        "alg": "SHA-256",
-        "value_b64u": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-        "covers": "policy_scoped_output_representation"
-      }
-    },
-
-    "environment": {
-      "deployment_id": "dep_01HZY8Y3Z9JQ3W6K5Z9H5E9F2A",
-      "env_fingerprint": {
-        "alg": "SHA-256",
-        "value_b64u": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-        "covers": "declared_env_fields"
-      },
-      "model_ref": "opaque-model-ref",
-      "runtime_ref": "opaque-runtime-ref"
-    }
-  },
-
+  "schema_version": "1.0",
+  "body": {...},
   "canonicalization": {
-    "scheme": "RFC8785",
-    "version": "1.0",
-    "scope": "body"
+      "scheme": "RFC8785",
+      "scope": "body"
   },
-
   "integrity": {
-    "hash": {
-      "alg": "SHA-256",
-      "value_b64u": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
-      "covers": "canonical(body)"
-    },
-    "sig": {
-      "alg": "ECDSA-P256-SHA256",
-      "format": "DER",
-      "value_b64u": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
-      "covers": "canonical(body)"
-    }
-  },
-
-  "key_reference": {
-    "registry": "operator",
-    "key_id": "kms:aws:us-west-2:111122223333:key/abcd-efgh-ijkl",
-    "public_key_fingerprint": {
-      "alg": "SHA-256",
-      "value_b64u": "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
-      "covers": "public_key_spki_der"
-    }
+      "hash": {...},
+      "sig": {...}
   }
 }
+
+## 4. Canonicalization Rules
+All artifacts MUST be canonicalized using RFC8785 JSON Canonicalization Scheme.
+
+## 5. Hashing
+Algorithm: SHA-256  
+Input: canonicalized artifact body.
+
+## 6. Signature
+Algorithm: ECDSA-P256-SHA256  
+Format: DER.
+
+## 7. Verification Procedure
+1. Canonicalize body.
+2. Recompute SHA-256 digest.
+3. Compare stored hash.
+4. Validate ECDSA signature.
+
+## 8. Security Considerations
+- Tamper detection
+- Replay considerations
+- Key compromise scenarios
