@@ -14,7 +14,7 @@ As AI systems increasingly influence real-world decisions, independent verificat
 
 CEYO proposes a neutral evidentiary layer that records AI decision artifacts in a deterministic and verifiable way. These artifacts can later be validated by independent parties without requiring access to internal model weights or proprietary implementation details.
 
-This repository contains a conceptual architecture, reference implementation components, and a minimal verification demonstration.
+This repository contains the protocol specification, reference implementation components, and a minimal verification demonstration.
 
 ⸻
 
@@ -178,7 +178,7 @@ The repository includes a minimal CLI verifier demonstrating how CEYO artifacts 
 
 Example verification command:
 
-python tools/ceyo_verify.py example_artifact/sample_record.json example_artifact/sample_signature.json example_artifact/public_key.pem
+python3 tools/ceyo_verify.py example_artifact/sample_record.json example_artifact/sample_signature.json example_artifact/public_key.pem
 
 The verifier performs:
 
