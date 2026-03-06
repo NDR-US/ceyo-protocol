@@ -16,7 +16,7 @@ AI System Inference
 ↓  
 Policy-Scoped Capture  
 ↓  
-Canonicalization (RFC 8785)  
+Deterministic Canonicalization (RFC 8785)  
 ↓  
 SHA-256 Digest Generation  
 ↓  
@@ -48,7 +48,7 @@ CEYO is built around several key principles.
 Records generated from AI decisions must be reproducible and consistent when canonicalized.
 
 **Cryptographic Sealing**  
-Artifacts are hashed and digitally signed so any alteration becomes detectable.
+Artifacts are hashed and digitally signed so that any alteration becomes detectable.
 
 **Policy-Scoped Data Capture**  
 Only explicitly declared fields are recorded. Out-of-scope data is excluded by design.
@@ -58,6 +58,22 @@ Third parties can recompute hashes and verify signatures without accessing the o
 
 **Model Neutrality**  
 CEYO does not modify, instrument, or interfere with the underlying model.
+
+---
+
+## NON-GOALS
+
+CEYO artifacts are designed to provide cryptographic integrity verification of recorded AI decision artifacts.
+
+CEYO does not attempt to:
+
+• determine whether an AI decision is correct  
+• prove fairness or absence of bias  
+• certify regulatory compliance  
+• enforce governance policies  
+• control or modify AI model behavior  
+
+CEYO provides tamper-evident artifact records that enable independent verification of recorded decision data.
 
 ---
 
@@ -141,7 +157,11 @@ python3 tools/ceyo_verify.py example_artifact/sample_record.json example_artifac
 
 Expected output:
 
-PASS
+[PASS] canonicalization verified  
+[PASS] digest match  
+[PASS] signature valid  
+
+Artifact integrity verified
 
 This demonstrates the core CEYO lifecycle:
 
@@ -202,11 +222,28 @@ python3 tools/ceyo_verify.py example_artifact/sample_record.json example_artifac
 
 The verifier performs:
 
-RFC 8785 canonicalization  
-SHA-256 hashing  
-ECDSA-P256 signature validation  
+• RFC 8785 canonicalization  
+• SHA-256 hashing  
+• ECDSA-P256 signature validation  
 
 The result indicates whether the artifact is valid or has been modified.
+
+---
+
+## PROTOCOL STATUS
+
+CEYO is an early-stage conceptual prototype exploring evidentiary infrastructure for AI systems.
+
+The repository currently includes:
+
+• protocol documentation  
+• artifact schema specification  
+• reference implementation components  
+• a minimal verification demonstration  
+
+CEYO is intended to explore architectural approaches for independently verifiable AI decision records.
+
+It is not a production security system and should not be used for operational environments.
 
 ---
 
