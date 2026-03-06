@@ -1,18 +1,18 @@
 {
-“artifact_version”: “1.0”,
-“artifact_id”: “ceyo-demo-0001”,
-“timestamp”: “2026-02-19T12:00:00Z”,
-“system”: {
-“name”: “demo-ai-system”,
-“model_version”: “1.0”
-},
-“event”: {
-“type”: “classification”,
-“input_reference”: “input_001”,
-“output”: “approved”
-},
-“policy_scope”: {
-“policy_id”: “demo-policy”,
-“policy_version”: “1.0”
-}
+  "artifact_version": "1.0",
+  "artifact_id": "ceyo-demo-0001",
+  "timestamp": "2026-02-19T12:00:00Z",
+  "system": {
+    "name": "demo-ai-system",
+    "model_version": "1.0"
+  },
+  "event": {
+    "type": "classification",
+    "input_reference": "input_001",
+    "output": "approved"
+  },
+  "policy_scope": {
+    "policy_id": "demo-policy",
+    "policy_version": "1.0"
+  }
 }
