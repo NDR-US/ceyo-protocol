@@ -91,6 +91,10 @@ QUICK DEMO
 
 CEYO includes a minimal end-to-end demonstration showing how a policy-scoped AI event can be recorded, sealed, and verified.
 
+Install dependencies
+
+pip install -r requirements.txt
+
 Step 1 — Create the Example Record
 
 The example artifact record is located in:
@@ -122,6 +126,12 @@ PASS
 This demonstrates the core CEYO lifecycle:
 
 record → canonicalize → hash → sign → verify
+
+Optional: Run the full demonstration automatically
+
+python3 demo.py
+
+This runs the sealing and verification steps in a single command.
 
 ⸻
 
