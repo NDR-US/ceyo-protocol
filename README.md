@@ -7,6 +7,39 @@ CEYO explores cryptographic verification and governance architecture for autonom
 The goal is to enable trusted oversight, auditing, and verification of AI outcomes through deterministic artifact generation and cryptographic sealing.
 
 ⸻
+ARCHITECTURE OVERVIEW
+
+CEYO operates as a neutral evidentiary layer attached to an AI inference boundary. It captures policy-scoped decision records and produces deterministic cryptographically sealed artifacts that can be independently verified.
+
+AI System Inference
+
+        ↓
+
+Policy-Scoped Capture
+
+        ↓
+
+Canonicalization (RFC 8785)
+
+        ↓
+
+SHA-256 Digest Generation
+
+        ↓
+
+ECDSA-P256 Cryptographic Seal
+
+        ↓
+
+CEYO Artifact Record
+
+        ↓
+
+Independent Verification
+
+Independent parties can recompute canonicalization, hashing, and signature validation to confirm artifact integrity without requiring access to model weights or proprietary system internals.
+
+⸻
 
 OVERVIEW
 
