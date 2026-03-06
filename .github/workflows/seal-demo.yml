@@ -1,0 +1,23 @@
+name: Seal demo
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install cryptography rfc8785
+      - run: python seal_artifact.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sealed-output
+          path: |
+            example_artifact/sealed_artifact.json
+            example_artifact/sample_signature.json
+            example_artifact/public_key.pem
