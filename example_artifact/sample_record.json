@@ -1,18 +1,30 @@
 {
-  "artifact_version": "1.0",
-  "artifact_id": "ceyo-demo-0001",
-  "timestamp": "2026-02-19T12:00:00Z",
-  "system": {
-    "name": "demo-ai-system",
-    "model_version": "1.0"
-  },
   "event": {
+    "event_id": "evt_demo_0001",
     "type": "classification",
-    "input_reference": "input_001",
-    "output": "approved"
+    "occurred_at": "2026-02-19T12:00:00Z",
+    "request_id": "req_demo_0001"
   },
-  "policy_scope": {
-    "policy_id": "demo-policy",
-    "policy_version": "1.0"
+  "policy": {
+    "id": "demo-policy",
+    "version": "1.0"
+  },
+  "disclosure_tier": "public",
+  "capture": {
+    "input_ref_hash": {
+      "alg": "SHA-256",
+      "value_b64u": "placeholder_input_hash",
+      "covers": "policy_scoped_input_representation"
+    },
+    "output_ref_hash": {
+      "alg": "SHA-256",
+      "value_b64u": "placeholder_output_hash",
+      "covers": "policy_scoped_output_representation"
+    }
+  },
+  "environment": {
+    "deployment_id": "dep_demo_local",
+    "model_ref": "demo-ai-system-v1.0",
+    "runtime_ref": "local"
   }
 }
