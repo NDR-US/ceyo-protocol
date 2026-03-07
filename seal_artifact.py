@@ -74,7 +74,7 @@ def sha256(data: bytes) -> bytes:
     return hashlib.sha256(data).digest()
 
 
-def load_or_create_keypair() -> tuple[ec.EllipticCurvePrivateKey, bytes]:
+def load_or_create_keypair() -> tuple[ec.EllipticCurvePrivateKey, bytes, bytes]:
     if PRIVKEY_PATH.exists():
         priv = serialization.load_pem_private_key(PRIVKEY_PATH.read_bytes(), password=None)
         if not isinstance(priv, ec.EllipticCurvePrivateKey):
