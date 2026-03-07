@@ -24,11 +24,11 @@ from typing import Any, Dict
 try:
     import rfc8785  # pip install rfc8785
     HAS_RFC8785 = True
-except Exception:
+except ImportError:
     HAS_RFC8785 = False
 
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, utils
 
 
 ROOT = Path(__file__).resolve().parent
@@ -64,9 +64,11 @@ def sha256(data: bytes) -> bytes:
     return hashlib.sha256(data).digest()
 
 
-def load_or_create_keypair() -> tuple[ec.EllipticCurvePrivateKey, bytes, bytes]:
+def load_or_create_keypair() -> tuple[ec.EllipticCurvePrivateKey, bytes]:
     if PRIVKEY_PATH.exists():
         priv = serialization.load_pem_private_key(PRIVKEY_PATH.read_bytes(), password=None)
+        if not isinstance(priv, ec.EllipticCurvePrivateKey):
+            raise TypeError(f"Expected ECDSA private key, got {type(priv).__name__}")
     else:
         priv = ec.generate_private_key(ec.SECP256R1())
         PRIVKEY_PATH.write_bytes(
@@ -83,7 +85,7 @@ def load_or_create_keypair() -> tuple[ec.EllipticCurvePrivateKey, bytes, bytes]:
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
     PUBKEY_PATH.write_bytes(pub_pem)
-    return priv, PRIVKEY_PATH.read_bytes(), pub_pem
+    return priv, pub_pem
 
 
 def main() -> None:
@@ -97,9 +99,9 @@ def main() -> None:
     canonical_bytes = canonicalize(record)
     digest = sha256(canonical_bytes)
 
-    priv, _priv_pem, pub_pem = load_or_create_keypair()
+    priv, pub_pem = load_or_create_keypair()
 
-    signature = priv.sign(digest, ec.ECDSA(hashes.SHA256()))
+    signature = priv.sign(digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
 
     sealed = {
         "schema_version": "1.0",
