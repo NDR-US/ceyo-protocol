@@ -1,1 +1,4 @@
+__pycache__/
 example_artifact/private_key.pem
+example_artifact/public_key.pem
+example_artifact/sealed_artifact.json
