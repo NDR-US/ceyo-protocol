@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-CEYO Protocol — Sealing demo
+CEYO Protocol — Sealing tool
 
 Reads:  example_artifact/sample_record.json
 Writes: example_artifact/sealed_artifact.json
-       example_artifact/sample_signature.json
-       example_artifact/public_key.pem
-       example_artifact/private_key.pem  (should be ignored by .gitignore)
+        example_artifact/public_key.pem
+        example_artifact/private_key.pem  (should be ignored by .gitignore)
 
-Signature: ECDSA P-256 over SHA-256(canonical_bytes)
+Output envelope follows docs/artifact-schema.json:
+  body → canonicalization → integrity → key_reference
+
+Signature: ECDSA P-256 over SHA-256(canonical(body))
 Canonicalization: RFC 8785 (JCS) if available; otherwise a deterministic fallback.
 """
 
@@ -17,6 +19,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -36,14 +40,20 @@ EXAMPLE_DIR = ROOT / "example_artifact"
 
 RECORD_PATH = EXAMPLE_DIR / "sample_record.json"
 SEALED_PATH = EXAMPLE_DIR / "sealed_artifact.json"
-SIG_PATH = EXAMPLE_DIR / "sample_signature.json"
 
 PRIVKEY_PATH = EXAMPLE_DIR / "private_key.pem"
 PUBKEY_PATH = EXAMPLE_DIR / "public_key.pem"
 
 
 def b64u(data: bytes) -> str:
+    """Base64url encode without padding."""
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def b64u_decode(s: str) -> bytes:
+    """Base64url decode, re-adding padding as needed."""
+    s += "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s)
 
 
 def canonicalize(obj: Any) -> bytes:
@@ -84,8 +94,12 @@ def load_or_create_keypair() -> tuple[ec.EllipticCurvePrivateKey, bytes]:
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
+    pub_der = pub.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
     PUBKEY_PATH.write_bytes(pub_pem)
-    return priv, pub_pem
+    return priv, pub_pem, pub_der
 
 
 def main() -> None:
@@ -94,43 +108,56 @@ def main() -> None:
     if not RECORD_PATH.exists():
         raise FileNotFoundError(f"Missing {RECORD_PATH}. Create it first.")
 
-    record: Dict[str, Any] = json.loads(RECORD_PATH.read_text(encoding="utf-8"))
+    body: Dict[str, Any] = json.loads(RECORD_PATH.read_text(encoding="utf-8"))
 
-    canonical_bytes = canonicalize(record)
+    canonical_bytes = canonicalize(body)
     digest = sha256(canonical_bytes)
 
-    priv, pub_pem = load_or_create_keypair()
+    priv, pub_pem, pub_der = load_or_create_keypair()
 
     signature = priv.sign(digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
 
+    canon_scheme = "RFC8785" if HAS_RFC8785 else "deterministic-json-fallback"
+
     sealed = {
-        "schema_version": "1.0",
-        "canonicalization": "RFC8785" if HAS_RFC8785 else "deterministic-json-fallback",
-        "hash": {"alg": "sha256", "value_b64u": b64u(digest)},
-        "signature": {"alg": "ecdsa-p256-sha256", "value_b64u": b64u(signature)},
-        "public_key": {"format": "spki-pem", "value_pem": pub_pem.decode("utf-8")},
-        "record": record,
+        "product": "CEYO",
+        "envelope_version": "1.0",
+        "artifact_schema": {"name": "ceyo.artifact", "version": "1.0"},
+        "artifact_id": f"ceyo_art_{uuid.uuid4().hex[:26]}",
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "body": body,
+        "canonicalization": {
+            "scheme": canon_scheme,
+            "version": "1.0",
+            "scope": "body",
+        },
+        "integrity": {
+            "hash": {
+                "alg": "SHA-256",
+                "value_b64u": b64u(digest),
+                "covers": "canonical(body)",
+            },
+            "sig": {
+                "alg": "ECDSA-P256-SHA256",
+                "format": "DER",
+                "value_b64u": b64u(signature),
+                "covers": "canonical(body)",
+            },
+        },
+        "key_reference": {
+            "registry": "local",
+            "key_id": "local:public_key.pem",
+            "public_key_fingerprint": {
+                "alg": "SHA-256",
+                "value_b64u": b64u(sha256(pub_der)),
+                "covers": "public_key_spki_der",
+            },
+        },
     }
 
     SEALED_PATH.write_text(json.dumps(sealed, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    SIG_PATH.write_text(
-        json.dumps(
-            {
-                "hash_alg": "sha256",
-                "hash_b64u": b64u(digest),
-                "sig_alg": "ecdsa-p256-sha256",
-                "sig_b64u": b64u(signature),
-                "canonicalization": sealed["canonicalization"],
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
     print(f"Wrote: {SEALED_PATH}")
-    print(f"Wrote: {SIG_PATH}")
     print(f"Wrote: {PUBKEY_PATH}")
     print(f"Private key (should be ignored): {PRIVKEY_PATH}")
     if not HAS_RFC8785:
