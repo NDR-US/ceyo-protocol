@@ -19,5 +19,4 @@ jobs:
           name: sealed-output
           path: |
             example_artifact/sealed_artifact.json
-            example_artifact/sample_signature.json
             example_artifact/public_key.pem
