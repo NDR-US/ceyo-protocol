@@ -1,6 +1,2 @@
 rfc8785
 cryptography
-
-These cover:
-	•	RFC 8785 JSON canonicalization
-	•	ECDSA signature verification
