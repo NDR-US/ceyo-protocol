@@ -1,5 +1,7 @@
 __pycache__/
 *.db
+.coverage
 example_artifact/private_key.pem
+example_artifact/private_key.pub.pem
 example_artifact/public_key.pem
 example_artifact/sealed_artifact.json
