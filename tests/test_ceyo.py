@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import sys
+import shutil
 import tempfile
 from pathlib import Path
 from unittest import TestCase, main
@@ -75,6 +76,7 @@ class TestSealAndVerify(TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmpdir)
         self.body = {
             "event": {
                 "event_id": "evt_test_001",

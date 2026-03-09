@@ -2,8 +2,7 @@
 
 ## Step 1: Obtain Artifact Files
 
-sample_record.json
-sample_signature.json
+sealed_artifact.json
 public_key.pem
 
 ## Step 2: Install Dependencies
@@ -12,12 +11,12 @@ pip install -r requirements.txt
 
 ## Step 3: Run Verifier
 
-python tools/ceyo_verify.py \
-example_artifact/sample_record.json \
-example_artifact/sample_signature.json \
-example_artifact/public_key.pem
+python3 tools/ceyo_verify.py example_artifact/sealed_artifact.json example_artifact/public_key.pem
 
 Expected Output:
 
-PASS
-Signature validated
+PASS: Hash matches
+PASS: Signature valid
+PASS: Key fingerprint matches
+
+Verification PASSED

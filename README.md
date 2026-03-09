@@ -145,23 +145,22 @@ python3 seal_artifact.py
 
 This generates:
 
-example_artifact/sealed_artifact.json  
-example_artifact/sample_signature.json  
-example_artifact/public_key.pem  
+example_artifact/sealed_artifact.json
+example_artifact/public_key.pem
 
 ### Step 3 — Verify the Artifact
 
 Run:
 
-python3 tools/ceyo_verify.py example_artifact/sample_record.json example_artifact/sample_signature.json example_artifact/public_key.pem
+python3 tools/ceyo_verify.py example_artifact/sealed_artifact.json example_artifact/public_key.pem
 
 Expected output:
 
-[PASS] canonicalization verified  
-[PASS] digest match  
-[PASS] signature valid  
+PASS: Hash matches
+PASS: Signature valid
+PASS: Key fingerprint matches
 
-Artifact integrity verified
+Verification PASSED
 
 This demonstrates the core CEYO lifecycle:
 
@@ -195,19 +194,21 @@ threat-model.md
 verification-protocol.md  
 verification-walkthrough.md  
 
-tools/  
-ceyo_verify.py  
-make_example_artifact.py  
+tools/
+ceyo_verify.py
 
-example_artifact/  
-sample_record.json  
-sample_signature.json  
-public_key.pem  
-sealed_artifact.json  
+example_artifact/
+sample_record.json
 
-.github/workflows/  
-seal-demo.yml  
+tests/
+test_ceyo.py
 
+.github/workflows/
+seal-demo.yml
+
+seal_artifact.py
+demo.py
+requirements.txt
 README.md
 
 ---
@@ -218,7 +219,7 @@ The repository includes a minimal CLI verifier demonstrating how CEYO artifacts 
 
 Example verification command:
 
-python3 tools/ceyo_verify.py example_artifact/sample_record.json example_artifact/sample_signature.json example_artifact/public_key.pem
+python3 tools/ceyo_verify.py example_artifact/sealed_artifact.json example_artifact/public_key.pem
 
 The verifier performs:
 
