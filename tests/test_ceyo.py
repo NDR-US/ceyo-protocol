@@ -10,16 +10,15 @@ import tempfile
 from pathlib import Path
 from unittest import TestCase, main
 
-from ceyo.crypto import b64u, b64u_decode, canonicalize, sha256
-from ceyo.keys import InMemoryKeyProvider, LocalKeyProvider, KeyManager
-from ceyo.schema import validate_envelope, validate_body, ValidationError, validate_envelope_or_raise
-from ceyo.seal import seal_body, seal
-from ceyo.store import ArtifactStore
-from ceyo.verify import verify_artifact
-from ceyo.client import CeyoClient
-
 from cryptography.hazmat.primitives.asymmetric import ec
 
+from ceyo.client import CeyoClient
+from ceyo.crypto import b64u, b64u_decode, canonicalize, sha256
+from ceyo.keys import InMemoryKeyProvider, KeyManager, LocalKeyProvider
+from ceyo.schema import ValidationError, validate_body, validate_envelope, validate_envelope_or_raise
+from ceyo.seal import seal, seal_body
+from ceyo.store import ArtifactStore
+from ceyo.verify import verify_artifact
 
 # ---------------------------------------------------------------------------
 # Crypto primitives

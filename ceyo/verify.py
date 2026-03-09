@@ -9,7 +9,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, utils
 
-from ceyo.crypto import b64u_decode, canonicalize
+from ceyo.crypto import b64u_decode
 from ceyo.schema import validate_envelope
 
 

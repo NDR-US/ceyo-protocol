@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -44,7 +44,7 @@ class KeyProvider(abc.ABC):
         """SHA-256 fingerprint of the public key DER, base64url-encoded."""
         return b64u(sha256(self.get_public_key_der()))
 
-    def key_reference(self) -> dict:
+    def key_reference(self) -> dict[str, Any]:
         """Build the key_reference block for an artifact envelope."""
         return {
             "registry": self.registry(),

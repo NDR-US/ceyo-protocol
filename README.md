@@ -123,111 +123,131 @@ Separating the artifact schema into a dedicated specification file allows the sc
 
 ---
 
+## INSTALLATION
+
+    pip install .
+
+For development (includes ruff, mypy, coverage):
+
+    pip install -e ".[dev]"
+
+This installs the `ceyo` Python package and the `ceyo` CLI command.
+
+---
+
+## CLI USAGE
+
+### Seal a record
+
+    ceyo seal example_artifact/sample_record.json --key my_private.pem
+
+### Verify an artifact
+
+    ceyo verify example_artifact/sealed_artifact.json example_artifact/public_key.pem
+
+### Inspect the artifact store
+
+    ceyo store list ceyo_artifacts.db
+    ceyo store verify-chain ceyo_artifacts.db
+
+---
+
+## SDK USAGE
+
+```python
+from ceyo import CeyoClient
+from ceyo.keys import LocalKeyProvider
+from ceyo.store import ArtifactStore
+
+# Initialize with persistent keys and an append-only store
+client = CeyoClient(
+    key_provider=LocalKeyProvider("keys/private.pem"),
+    store=ArtifactStore("artifacts.db"),
+)
+
+# Seal an artifact
+envelope = client.seal({
+    "event": {
+        "event_id": "evt_001",
+        "type": "classification",
+        "occurred_at": "2026-03-09T12:00:00Z",
+    },
+    "disclosure_tier": "internal",
+})
+
+# Verify
+result = client.verify(envelope)
+assert result.ok
+
+# Trace decorator — automatically seals an artifact per call
+@client.trace(event_type="inference")
+def predict(text):
+    return model(text)
+```
+
+---
+
 ## QUICK DEMO
 
-CEYO includes a minimal end-to-end demonstration showing how a policy-scoped AI event can be recorded, sealed, and verified.
+CEYO includes a minimal end-to-end demonstration.
 
-### Install dependencies
+### Step 1 — Seal the Artifact
 
-pip install -r requirements.txt
+    ceyo seal example_artifact/sample_record.json --key example_artifact/private_key.pem -o example_artifact/sealed_artifact.json
 
-### Step 1 — Create the Example Record
+Or use the legacy script: `python3 seal_artifact.py`
 
-The example artifact record is located in:
+### Step 2 — Verify the Artifact
 
-example_artifact/sample_record.json
-
-### Step 2 — Seal the Artifact
-
-Run the following command:
-
-python3 seal_artifact.py
-
-This generates:
-
-example_artifact/sealed_artifact.json
-example_artifact/public_key.pem
-
-### Step 3 — Verify the Artifact
-
-Run:
-
-python3 tools/ceyo_verify.py example_artifact/sealed_artifact.json example_artifact/public_key.pem
+    ceyo verify example_artifact/sealed_artifact.json example_artifact/public_key.pem
 
 Expected output:
 
-PASS: Hash matches
-PASS: Signature valid
-PASS: Key fingerprint matches
+    PASS: Schema valid
+    PASS: Hash matches
+    PASS: Signature valid
+    PASS: Key fingerprint matches
 
-Verification PASSED
-
-This demonstrates the core CEYO lifecycle:
-
-record → canonicalize → hash → sign → verify
+    Verification PASSED
 
 ### Optional: Run the full demonstration automatically
 
-python3 demo.py
-
-This runs the sealing and verification steps in a single command.
+    python3 demo.py
 
 ---
 
 ## REPOSITORY STRUCTURE
 
-ceyo-protocol
-
-docs/  
-architecture.md  
-artifact-schema.json  
-design-principles.md  
-example-workflow.md  
-glossary.md  
-governance.md  
-implementation-guide.md  
-key-management.md  
-protocol-specification.md  
-roadmap.md  
-security-model.md  
-threat-model.md  
-verification-protocol.md  
-verification-walkthrough.md  
-
-tools/
-ceyo_verify.py
-
-example_artifact/
-sample_record.json
-
-tests/
-test_ceyo.py
-
-.github/workflows/
-seal-demo.yml
-
-seal_artifact.py
-demo.py
-requirements.txt
-README.md
+    ceyo-protocol/
+    ├── ceyo/                    # Python SDK package
+    │   ├── cli.py               # CLI entry point (ceyo seal/verify/store)
+    │   ├── client.py            # CeyoClient with @trace decorator
+    │   ├── crypto.py            # Canonicalization, hashing, base64url
+    │   ├── keys.py              # Key providers (local PEM, in-memory, registry)
+    │   ├── schema.py            # JSON Schema validation
+    │   ├── seal.py              # Artifact sealing
+    │   ├── store.py             # SQLite append-only store with hash chaining
+    │   └── verify.py            # Artifact verification
+    ├── docs/                    # Protocol documentation and schemas
+    ├── examples/                # SDK usage examples
+    ├── scripts/                 # Utility scripts
+    ├── tests/                   # Test suite
+    ├── tools/                   # Legacy CLI tools
+    ├── example_artifact/        # Sample records
+    ├── pyproject.toml           # Package configuration
+    └── demo.py                  # End-to-end demo runner
 
 ---
 
-## VERIFICATION DEMONSTRATION
+## VERIFICATION
 
-The repository includes a minimal CLI verifier demonstrating how CEYO artifacts can be independently validated.
+The `ceyo verify` command and `verify_artifact()` function perform:
 
-Example verification command:
-
-python3 tools/ceyo_verify.py example_artifact/sealed_artifact.json example_artifact/public_key.pem
-
-The verifier performs:
-
-• RFC 8785 canonicalization  
-• SHA-256 hashing  
-• ECDSA-P256 signature validation  
-
-The result indicates whether the artifact is valid or has been modified.
+• JSON Schema envelope validation
+• RFC 8785 canonicalization
+• SHA-256 hash verification
+• ECDSA-P256 signature validation
+• Public key fingerprint matching
 
 ---
 

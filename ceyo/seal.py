@@ -9,8 +9,8 @@ from typing import Any
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, utils
 
-from ceyo.crypto import b64u, canonicalize, canon_scheme, sha256
-from ceyo.keys import KeyProvider, InMemoryKeyProvider
+from ceyo.crypto import b64u, canon_scheme, canonicalize, sha256
+from ceyo.keys import InMemoryKeyProvider, KeyProvider
 from ceyo.schema import validate_body_or_raise
 
 

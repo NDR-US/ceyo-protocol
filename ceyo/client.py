@@ -9,10 +9,10 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from ceyo.crypto import b64u
-from ceyo.keys import KeyProvider, InMemoryKeyProvider
+from ceyo.keys import InMemoryKeyProvider, KeyProvider
 from ceyo.seal import seal_body
 from ceyo.store import ArtifactStore
-from ceyo.verify import verify_artifact, VerificationResult
+from ceyo.verify import VerificationResult, verify_artifact
 
 
 class CeyoClient:
