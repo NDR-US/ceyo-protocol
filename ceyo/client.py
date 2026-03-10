@@ -1,10 +1,12 @@
-"""High-level CEYO client with decorator and middleware support."""
+"""High-level CEYO client with decorator, middleware, batch, and async support."""
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import hashlib
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -147,6 +149,25 @@ class CeyoClient:
             return decorator(func)
         return decorator
 
+    def seal_batch(
+        self,
+        bodies: list[dict[str, Any]],
+        *,
+        validate: bool = True,
+        persist: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Seal multiple artifact bodies in one call.
+
+        Args:
+            bodies: List of artifact body dicts.
+            validate: Whether to validate each body schema.
+            persist: Whether to append each to the store.
+
+        Returns:
+            List of sealed artifact envelopes in the same order.
+        """
+        return [self.seal(body, validate=validate, persist=persist) for body in bodies]
+
     def wrap_openai(self, openai_client: Any) -> Any:
         """Wrap an OpenAI client to automatically seal artifacts for each call.
 
@@ -239,3 +260,71 @@ class _OpenAIWrapper:
         if name == "chat":
             return self.chat
         return getattr(self._client, name)
+
+
+class AsyncCeyoClient:
+    """Async-compatible CEYO client.
+
+    Wraps the synchronous CeyoClient and runs blocking operations
+    (crypto, SQLite) in a thread pool so they don't block the event loop.
+
+    Usage:
+        async_client = AsyncCeyoClient(key_provider=LocalKeyProvider("keys/private.pem"))
+        envelope = await async_client.seal(body)
+        result = await async_client.verify(envelope)
+    """
+
+    def __init__(
+        self,
+        key_provider: KeyProvider | None = None,
+        store: ArtifactStore | None = None,
+        executor: ThreadPoolExecutor | None = None,
+    ):
+        self._sync = CeyoClient(key_provider=key_provider, store=store)
+        self._executor = executor
+
+    @property
+    def key_provider(self) -> KeyProvider:
+        return self._sync.key_provider
+
+    @property
+    def store(self) -> ArtifactStore | None:
+        return self._sync.store
+
+    async def seal(
+        self,
+        body: dict[str, Any],
+        *,
+        validate: bool = True,
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: self._sync.seal(body, validate=validate, persist=persist),
+        )
+
+    async def verify(
+        self,
+        artifact: dict[str, Any],
+        *,
+        check_schema: bool = True,
+    ) -> VerificationResult:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: self._sync.verify(artifact, check_schema=check_schema),
+        )
+
+    async def seal_batch(
+        self,
+        bodies: list[dict[str, Any]],
+        *,
+        validate: bool = True,
+        persist: bool = True,
+    ) -> list[dict[str, Any]]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: self._sync.seal_batch(bodies, validate=validate, persist=persist),
+        )

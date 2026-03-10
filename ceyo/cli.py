@@ -65,6 +65,29 @@ def cmd_store_verify_chain(args: argparse.Namespace) -> None:
         sys.exit(0 if ok else 1)
 
 
+def cmd_store_export(args: argparse.Namespace) -> None:
+    """Export artifacts from a store database."""
+    with ArtifactStore(args.db) as store:
+        if args.format == "jsonl":
+            content = store.export_jsonl(args.output)
+        else:
+            content = store.export_csv(args.output)
+
+        if args.output:
+            print(f"Exported to {args.output}")
+        else:
+            print(content, end="")
+
+
+def cmd_version(_args: argparse.Namespace) -> None:
+    """Show CEYO version and schema info."""
+    from ceyo.schema_version import CURRENT_VERSION, list_versions
+
+    print("ceyo 0.1.0")
+    print(f"Schema version: {CURRENT_VERSION}")
+    print(f"Known versions: {', '.join(list_versions())}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ceyo", description="CEYO Protocol CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -95,6 +118,18 @@ def main() -> None:
     p_chain = store_sub.add_parser("verify-chain", help="Verify store chain integrity")
     p_chain.add_argument("db", help="Path to SQLite database")
     p_chain.set_defaults(func=cmd_store_verify_chain)
+
+    p_export = store_sub.add_parser("export", help="Export artifacts for auditors")
+    p_export.add_argument("db", help="Path to SQLite database")
+    p_export.add_argument(
+        "--format", "-f", choices=["jsonl", "csv"], default="jsonl", help="Export format (default: jsonl)",
+    )
+    p_export.add_argument("--output", "-o", help="Output file path (default: stdout)")
+    p_export.set_defaults(func=cmd_store_export)
+
+    # ceyo version
+    p_version = sub.add_parser("version", help="Show version and schema info")
+    p_version.set_defaults(func=cmd_version)
 
     args = parser.parse_args()
     args.func(args)

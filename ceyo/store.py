@@ -1,11 +1,14 @@
 """Append-only artifact store with hash chaining.
 
 Stores sealed artifacts in SQLite with each row chained to the previous
-via SHA-256, forming a tamper-evident log.
+via SHA-256, forming a tamper-evident log. Supports export to JSON Lines
+and CSV for external auditors.
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import sqlite3
 from pathlib import Path
@@ -138,6 +141,62 @@ class ArtifactStore:
             (limit,),
         ).fetchall()
         return [json.loads(row[0]) for row in rows]
+
+    def export_jsonl(self, output: str | Path | None = None) -> str:
+        """Export all artifacts as JSON Lines (one JSON object per line).
+
+        Each line contains: seq, artifact_id, created_at, envelope, entry_hash, chain_hash.
+        If output is None, returns the JSONL string. Otherwise writes to file.
+        """
+        rows = self._conn.execute(
+            "SELECT seq, artifact_id, created_at, envelope, entry_hash, chain_hash "
+            "FROM artifacts ORDER BY seq"
+        ).fetchall()
+
+        lines: list[str] = []
+        for seq, artifact_id, created_at, envelope, entry_hash, chain_hash in rows:
+            record = {
+                "seq": seq,
+                "artifact_id": artifact_id,
+                "created_at": created_at,
+                "envelope": json.loads(envelope),
+                "entry_hash": entry_hash,
+                "chain_hash": chain_hash,
+            }
+            lines.append(json.dumps(record, separators=(",", ":"), ensure_ascii=False))
+
+        content = "\n".join(lines) + "\n" if lines else ""
+        if output is not None:
+            Path(output).write_text(content, encoding="utf-8")
+        return content
+
+    def export_csv(self, output: str | Path | None = None) -> str:
+        """Export artifact metadata as CSV for auditors.
+
+        Columns: seq, artifact_id, created_at, event_type, hash_alg, sig_alg, entry_hash, chain_hash.
+        If output is None, returns the CSV string. Otherwise writes to file.
+        """
+        rows = self._conn.execute(
+            "SELECT seq, artifact_id, created_at, envelope, entry_hash, chain_hash "
+            "FROM artifacts ORDER BY seq"
+        ).fetchall()
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        header = ["seq", "artifact_id", "created_at", "event_type", "hash_alg", "sig_alg", "entry_hash", "chain_hash"]
+        writer.writerow(header)
+
+        for seq, artifact_id, created_at, envelope_json, entry_hash, chain_hash in rows:
+            envelope = json.loads(envelope_json)
+            event_type = envelope.get("body", {}).get("event", {}).get("type", "")
+            hash_alg = envelope.get("integrity", {}).get("hash", {}).get("alg", "")
+            sig_alg = envelope.get("integrity", {}).get("sig", {}).get("alg", "")
+            writer.writerow([seq, artifact_id, created_at, event_type, hash_alg, sig_alg, entry_hash, chain_hash])
+
+        content = buf.getvalue()
+        if output is not None:
+            Path(output).write_text(content, encoding="utf-8")
+        return content
 
     def close(self) -> None:
         """Close the database connection."""

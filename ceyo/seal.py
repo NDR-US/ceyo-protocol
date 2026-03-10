@@ -41,8 +41,16 @@ def seal_body(
     canonical_bytes = canonicalize(body)
     digest = sha256(canonical_bytes)
 
-    priv = key_provider.get_private_key()
-    signature = priv.sign(digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
+    # Support KMS providers that sign via API (no exportable private key)
+    if hasattr(key_provider, "sign") and not isinstance(key_provider, (InMemoryKeyProvider,)):
+        try:
+            signature = key_provider.sign(digest)
+        except NotImplementedError:
+            priv = key_provider.get_private_key()
+            signature = priv.sign(digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
+    else:
+        priv = key_provider.get_private_key()
+        signature = priv.sign(digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
 
     if artifact_id is None:
         artifact_id = f"ceyo_art_{uuid.uuid4().hex[:26]}"

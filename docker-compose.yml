@@ -1,0 +1,10 @@
+services:
+  ceyo:
+    build: .
+    volumes:
+      - ./data:/data
+    environment:
+      - CEYO_PRIVATE_KEY
+      - CEYO_KEY_ID
+    entrypoint: ["ceyo"]
+    command: ["--help"]
