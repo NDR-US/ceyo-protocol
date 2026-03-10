@@ -15,9 +15,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-kms = [
-    "boto3",
-]
 dev = [
     "ruff",
     "mypy",
