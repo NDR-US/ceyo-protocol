@@ -139,6 +139,13 @@ class ArtifactStore:
         ).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def export_rows(self) -> list[tuple[int, str, str, str, str, str]]:
+        """Return all rows for export: (seq, artifact_id, created_at, envelope, entry_hash, chain_hash)."""
+        return self._conn.execute(
+            "SELECT seq, artifact_id, created_at, envelope, entry_hash, chain_hash "
+            "FROM artifacts ORDER BY seq"
+        ).fetchall()
+
     def close(self) -> None:
         """Close the database connection."""
         self._conn.close()
