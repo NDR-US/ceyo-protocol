@@ -16,7 +16,7 @@ Artifact Structure:
 
 {
   "product": "CEYO",
-  "schema_version": "1.0",
+  "envelope_version": "1.0",
   "body": {...},
   "canonicalization": {
       "scheme": "RFC8785",
