@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Evidentiary infrastructure prototype for AI systems"
 readme = "README.md"
 license = "MIT"
+authors = [
+    { name = "Brian Covarrubias", email = "bsecure.cov@gmail.com" },
+]
 requires-python = ">=3.10"
 dependencies = [
     "cryptography",
