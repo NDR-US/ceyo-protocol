@@ -278,4 +278,14 @@ https://ndr-us.github.io/ceyo-site/
 
 ## LICENSE
 
-MIT License
+Copyright (c) 2026 Brian Covarrubias
+
+All rights reserved.
+
+This repository and its contents, including but not limited to code, documentation, architecture, specifications, and associated materials, are the intellectual property of Brian Covarrubias.
+
+No part of this project may be copied, reproduced, modified, distributed, sublicensed, or used in any form without explicit written permission from the author.
+
+The materials contained in this repository are provided for informational and evaluation purposes only and do not grant any license or rights to use the underlying intellectual property.
+
+Unauthorized use of this material is strictly prohibited.
