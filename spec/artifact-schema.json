@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CEYO Sealed Artifact Envelope",
+  "type": "object",
+  "required": [
+    "product",
+    "envelope_version",
+    "artifact_schema",
+    "artifact_id",
+    "created_at",
+    "body",
+    "canonicalization",
+    "integrity",
+    "key_reference"
+  ],
+  "properties": {
+    "product": {
+      "type": "string",
+      "const": "CEYO"
+    },
+    "envelope_version": {
+      "type": "string"
+    },
+    "artifact_schema": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "artifact_id": {
+      "type": "string",
+      "pattern": "^ceyo_art_"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "body": {
+      "type": "object"
+    },
+    "canonicalization": {
+      "type": "object",
+      "required": [
+        "scheme",
+        "version",
+        "scope"
+      ],
+      "properties": {
+        "scheme": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "const": "body"
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "required": [
+        "hash",
+        "sig"
+      ],
+      "properties": {
+        "hash": {
+          "type": "object",
+          "required": [
+            "alg",
+            "value_b64u",
+            "covers"
+          ],
+          "properties": {
+            "alg": {
+              "type": "string",
+              "const": "SHA-256"
+            },
+            "value_b64u": {
+              "type": "string"
+            },
+            "covers": {
+              "type": "string"
+            }
+          }
+        },
+        "sig": {
+          "type": "object",
+          "required": [
+            "alg",
+            "format",
+            "value_b64u",
+            "covers"
+          ],
+          "properties": {
+            "alg": {
+              "type": "string",
+              "const": "ECDSA-P256-SHA256"
+            },
+            "format": {
+              "type": "string",
+              "const": "DER"
+            },
+            "value_b64u": {
+              "type": "string"
+            },
+            "covers": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "key_reference": {
+      "type": "object",
+      "required": [
+        "registry",
+        "key_id",
+        "public_key_fingerprint"
+      ],
+      "properties": {
+        "registry": {
+          "type": "string"
+        },
+        "key_id": {
+          "type": "string"
+        },
+        "public_key_fingerprint": {
+          "type": "object",
+          "required": [
+            "alg",
+            "value_b64u",
+            "covers"
+          ],
+          "properties": {
+            "alg": {
+              "type": "string",
+              "const": "SHA-256"
+            },
+            "value_b64u": {
+              "type": "string"
+            },
+            "covers": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
