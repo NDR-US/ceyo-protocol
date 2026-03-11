@@ -1,310 +1,324 @@
-CEYO Threat Model
+# CEYO Threat Model
 
-Overview
+**Version:** 1.0
+**Last Updated:** 2026-03-11
 
-This document describes the threat model for CEYO and identifies potential risks to artifact integrity, authenticity, and verification reliability.
+---
 
-CEYO is designed as an evidentiary infrastructure layer that generates deterministic artifacts describing AI system events. These artifacts are cryptographically sealed and can later be verified by independent parties.
+## 1. Introduction
 
-The purpose of the threat model is to identify attack vectors that could compromise:
-	•	artifact integrity
-	•	artifact authenticity
-	•	artifact availability
-	•	verification reliability
+This document defines the threat model for the CEYO evidentiary infrastructure protocol. It identifies attack vectors that could compromise artifact integrity, authenticity, availability, or verification reliability, and describes the mitigations provided by the protocol architecture.
 
-CEYO focuses specifically on threats affecting the artifact generation and verification process, rather than threats affecting AI model correctness.
+CEYO generates deterministic, cryptographically sealed artifacts describing AI system decision events. The threat model focuses on threats to the artifact generation and verification pipeline — not on threats to AI model correctness, fairness, or regulatory compliance.
 
-⸻
+---
 
-Security Goals
+## 2. Security Objectives
 
-The CEYO architecture is designed to satisfy the following security objectives.
+### 2.1 Artifact Integrity
 
-Artifact Integrity
+Artifacts MUST NOT be modifiable after cryptographic sealing without detection. Any alteration to artifact contents MUST produce a different hash and cause verification failure.
 
-Artifacts must not be modifiable after cryptographic sealing without detection.
+### 2.2 Artifact Authenticity
 
-Any alteration of artifact contents must produce a different hash and cause verification failure.
+Artifacts MUST be verifiably associated with the entity that generated the cryptographic signature. Verification MUST confirm that the artifact was sealed by the holder of the declared signing key.
 
-⸻
+### 2.3 Deterministic Reproducibility
 
-Artifact Authenticity
+Independent verifiers MUST be able to recompute canonical artifact hashes using the declared canonicalization scheme. Verification results MUST be reproducible across environments and implementations.
 
-Artifacts must be verifiably associated with the entity that generated the cryptographic signature.
+### 2.4 Independent Verification
 
-Verification must confirm that the artifact was sealed by the declared signing key.
+Verification MUST NOT require access to the original AI system. Artifacts MUST contain sufficient information for independent verification without revealing proprietary model details.
 
-⸻
+### 2.5 Policy-Bounded Data Capture
 
-Deterministic Reproducibility
+Artifact contents MUST remain constrained to policy-scoped fields defined by the capture policy. System data outside the policy scope MUST NOT be recorded.
 
-Independent verifiers must be able to recompute canonical artifact hashes using the artifact schema and canonicalization procedure.
+---
 
-Deterministic canonicalization ensures that verification results remain reproducible across environments.
+## 3. Trust Boundaries
 
-⸻
+```
+┌─────────────────────────────────────────────────┐
+│              Operator-Controlled                 │
+│                                                  │
+│  ┌──────────┐    ┌──────────┐    ┌───────────┐  │
+│  │ AI System │───►│  CEYO    │───►│ Artifact  │  │
+│  │           │    │ Capture  │    │  Store    │  │
+│  └──────────┘    │ + Seal   │    └───────────┘  │
+│                  └────┬─────┘                    │
+│                       │                          │
+│                  ┌────▼─────┐                    │
+│                  │ Signing  │                    │
+│                  │   Key    │                    │
+│                  └──────────┘                    │
+│                                                  │
+├──────────────────────────────────────────────────┤
+│              Verifier-Controlled                 │
+│                                                  │
+│  ┌──────────┐    ┌──────────┐    ┌───────────┐  │
+│  │ Artifact │───►│ Verifier │◄───│  Public   │  │
+│  │  (JSON)  │    │          │    │   Key     │  │
+│  └──────────┘    └──────────┘    └───────────┘  │
+│                                                  │
+└──────────────────────────────────────────────────┘
+```
 
-Independent Verification
+**Operator domain:** AI system, capture layer, sealing process, signing key, artifact storage.
+**Verifier domain:** Artifact copy, verification software, public key.
+**Trust boundary:** The artifact envelope is the trust boundary. Verification operates entirely on the artifact and public key without crossing into the operator domain.
 
-Verification must not require access to the original AI system.
+---
 
-Artifacts must contain sufficient information for independent verification without revealing proprietary model details.
+## 4. Threat Categories
 
-⸻
+### 4.1 Artifact Tampering
 
-Policy-Bounded Data Capture
+**Threat:** An attacker modifies artifact contents after generation — altering fields, timestamps, identifiers, or removing recorded data.
 
-Artifact contents must remain constrained to policy-scoped fields defined by the capture policy.
+**Impact:** If undetected, tampering destroys the evidentiary value of the artifact. A modified artifact could misrepresent the AI system's behavior.
 
-Out-of-scope system data must not be recorded unintentionally.
+**Attack vectors:**
+- Direct modification of stored artifact JSON
+- Man-in-the-middle alteration during artifact transmission
+- Database-level modification of artifact records
+- Field injection or removal in transit
 
-⸻
+**Mitigation:**
+- Artifacts are sealed with SHA-256 hash over the canonicalized body. Any modification changes the hash.
+- Artifacts are signed with ECDSA P-256. Any modification invalidates the signature.
+- Verification recomputes the hash and validates the signature, detecting any tampering.
+- Hash chaining in the artifact store provides sequence-level tamper evidence.
 
-Threat Categories
+**Residual risk:** Tampering is detectable but not preventable. An attacker with storage access can delete artifacts entirely (see Section 4.6).
 
-CEYO considers several classes of threats affecting artifact generation and verification.
+---
 
-⸻
+### 4.2 Replay Attacks
 
-Artifact Tampering
+**Threat:** An attacker reuses a previously generated, validly signed artifact to misrepresent a new or different event.
 
-Description
+**Impact:** A replayed artifact passes cryptographic verification because it was genuinely sealed. The deception is semantic — the artifact is authentic but presented out of context.
 
-An attacker attempts to modify artifact contents after generation.
+**Attack vectors:**
+- Submitting an old artifact as evidence of a recent event
+- Reusing artifacts across different systems or deployments
+- Duplicating artifacts within an artifact store
 
-Examples include:
-	•	modifying artifact fields
-	•	altering timestamps or identifiers
-	•	inserting additional fields
-	•	removing recorded fields
+**Mitigation:**
+- Each artifact contains a unique `artifact_id` (prefixed `ceyo_art_`)
+- Each artifact contains an `event.event_id` and `event.occurred_at` timestamp
+- The artifact store assigns monotonic sequence numbers and chain hashes
+- Verification systems SHOULD enforce uniqueness of artifact identifiers
+- Verification systems SHOULD validate timestamps against expected time windows
 
-If artifact data can be altered without detection, the evidentiary integrity of the system would be compromised.
+**Residual risk:** Replay detection requires policy enforcement at the verification or storage layer. The protocol provides the identifiers and timestamps needed for detection but does not mandate a specific replay detection mechanism.
 
-⸻
+---
 
-Mitigation
+### 4.3 Signing Key Compromise
 
-CEYO mitigates artifact tampering through cryptographic sealing.
+**Threat:** An attacker obtains the private signing key and generates artifacts that appear authentic.
 
-Artifacts are sealed by:
-	•	deterministic canonicalization
-	•	cryptographic hashing
-	•	digital signatures
+**Impact:** Critical. A compromised signing key allows an attacker to forge artifacts that pass all cryptographic verification checks.
 
-Any modification to artifact contents results in a hash mismatch and signature verification failure.
+**Attack vectors:**
+- Key extraction from insecure storage (file system, environment variables)
+- Side-channel attacks on signing operations
+- Insider access to key material
+- Compromise of key management infrastructure
 
-⸻
+**Mitigation:**
+- CEYO does not manage signing keys. Key management is the operator's responsibility.
+- Operators SHOULD store signing keys in hardware security modules (HSM) or managed key services (KMS) where the private key never leaves the hardware boundary.
+- Key rotation procedures SHOULD be implemented to limit the window of exposure.
+- The `key_reference` field in each artifact identifies the signing key, enabling revocation and rotation tracking.
+- Verification systems SHOULD maintain a record of valid key identifiers and rotation events.
 
-Replay Attacks
+**Residual risk:** If an attacker compromises the signing key, forged artifacts are cryptographically indistinguishable from genuine ones until the compromise is detected and the key is revoked.
 
-Description
+---
 
-An attacker attempts to reuse a previously generated artifact to misrepresent a new event.
+### 4.4 Schema Manipulation
 
-Replay attacks may occur if artifact identifiers or timestamps are reused.
+**Threat:** An attacker modifies the artifact schema or capture policy to change which fields are recorded, altering the meaning or completeness of artifacts without modifying individual artifact contents.
 
-⸻
+**Impact:** Artifacts may appear valid but record different information than expected. Field semantics may shift without detection.
 
-Mitigation
+**Attack vectors:**
+- Modifying the capture policy to exclude critical fields
+- Changing schema definitions to redefine field semantics
+- Deploying a modified schema version without change control
 
-CEYO artifacts include event identifiers and timestamps that can be evaluated during verification.
+**Mitigation:**
+- Each artifact declares its schema version in `artifact_schema` (name and version)
+- Verification systems MUST validate artifacts against the declared schema version
+- Schema changes SHOULD follow versioned change control with audit trails
+- Schema versions SHOULD be immutable once published
+- Verifiers SHOULD reject artifacts referencing unknown schema versions
 
-System operators may implement additional controls such as:
-	•	artifact sequence identifiers
-	•	request identifiers
-	•	system event counters
+**Residual risk:** Schema governance is an operational concern. The protocol provides schema versioning, but enforcement requires organizational discipline.
 
-Replay detection policies may be implemented at the verification or storage layer.
+---
 
-⸻
+### 4.5 Canonicalization Inconsistencies
 
-Signing Key Compromise
+**Threat:** Different implementations of the canonicalization scheme produce different byte output for the same input, causing verification failures on legitimate artifacts or (worse) allowing two different bodies to produce the same canonical form.
 
-Description
+**Impact:** False verification failures on legitimate artifacts. In the worst case, canonicalization collisions could allow body substitution.
 
-An attacker obtains access to the cryptographic signing key used to seal artifacts.
+**Attack vectors:**
+- Use of non-conforming canonicalization implementations
+- Edge cases in Unicode normalization or number serialization
+- Implementation bugs in RFC 8785 libraries
 
-If an attacker controls the signing key, they could generate artifacts that appear authentic.
+**Mitigation:**
+- CEYO mandates RFC 8785 (JSON Canonicalization Scheme), which is a well-defined standard with deterministic behavior
+- The `canonicalization.scheme` field declares the scheme used, enabling verifiers to select the correct implementation
+- Reference implementations SHOULD be validated against RFC 8785 test vectors
+- Operators SHOULD verify that their canonicalization library produces identical output to the reference implementation
 
-⸻
+**Residual risk:** Low, given RFC 8785 is a narrowly scoped standard. Risk increases if implementations deviate from the standard or handle edge cases differently.
 
-Mitigation
+---
 
-CEYO does not manage signing keys.
+### 4.6 Artifact Suppression
 
-Signing keys remain under the control of the system operator and should be stored using secure key management systems such as:
-	•	hardware security modules (HSM)
-	•	secure key management services
-	•	trusted execution environments
+**Threat:** An operator or attacker intentionally prevents artifact generation for certain events, removing evidence of those events entirely.
 
-Key rotation procedures should be implemented to limit the impact of potential compromise.
+**Impact:** Selective suppression creates gaps in the evidentiary record. Events that should have produced artifacts leave no trace.
 
-Verification systems should track signing key identifiers and rotation history.
+**Attack vectors:**
+- Disabling the CEYO capture layer for specific event types
+- Filtering events before they reach the capture layer
+- Dropping artifacts before they reach storage
+- Selectively deleting artifacts from storage
 
-⸻
+**Mitigation:**
+- CEYO cannot fully prevent artifact suppression by a compromised operator
+- Mitigation strategies include:
+  - Monitoring artifact generation rates for anomalous drops
+  - Maintaining independent audit logs of AI system activity
+  - Enforcing capture policies at infrastructure boundaries (e.g., API gateway)
+  - Using append-only or write-once storage systems
+  - Hash chaining in the artifact store makes deletion of individual artifacts detectable within the sequence
+- External artifact registries or third-party witnesses can provide independent records of artifact existence
 
-Schema Manipulation
+**Residual risk:** Suppression by a privileged operator is fundamentally difficult to prevent. Detection mechanisms reduce but do not eliminate this risk.
 
-Description
+---
 
-An attacker modifies the artifact schema or capture policy in order to change which fields are recorded.
+### 4.7 Verification Abuse
 
-If schema changes are not visible to verifiers, artifact meaning may be altered.
+**Threat:** An attacker exploits the verification system to produce false validation results — either false positives (invalid artifacts accepted) or false negatives (valid artifacts rejected).
 
-⸻
+**Impact:** False positives undermine trust in the verification process. False negatives could be used to discredit legitimate artifacts.
 
-Mitigation
+**Attack vectors:**
+- Submitting malformed artifacts designed to exploit parser vulnerabilities
+- Manipulating verification software or its dependencies
+- Bypassing verification steps through software bugs
+- Supplying incorrect public keys to cause false failures
 
-Artifacts include references to:
-	•	schema version identifiers
-	•	capture policy identifiers
+**Mitigation:**
+- Verification software MUST enforce strict schema validation before cryptographic verification
+- Verification MUST treat any validation error as a verification failure
+- Verification implementations SHOULD be tested against known-good and known-bad artifacts
+- Verification software SHOULD be subject to security review and dependency auditing
+- Verification libraries SHOULD reject malformed base64url, invalid DER encodings, and unexpected field types
 
-Verification systems must confirm that artifacts conform to the declared schema version.
+**Residual risk:** Verification software quality is an implementation concern. The protocol defines the verification procedure; correctness depends on implementation fidelity.
 
-Schema evolution should follow versioned change control.
+---
 
-⸻
+### 4.8 Storage Manipulation
 
-Canonicalization Manipulation
+**Threat:** An attacker modifies artifact records after they are stored — altering, deleting, or reordering artifacts in the storage system.
 
-Description
+**Impact:** If artifacts in storage are modified, the stored record no longer reflects the original sealed artifacts. If modifications go undetected, the evidentiary chain is broken.
 
-If canonicalization procedures differ between implementations, attackers could exploit serialization differences to produce inconsistent hash values.
+**Attack vectors:**
+- Direct database modification
+- File system alteration of stored artifact JSON
+- Backup restoration that overwrites newer artifacts
+- Storage system compromise
 
-⸻
+**Mitigation:**
+- Cryptographic verification detects modifications to individual artifacts regardless of storage
+- The artifact store implements hash chaining — each entry's chain hash covers the previous entry, creating a tamper-evident sequence
+- Operators SHOULD use append-only or write-once storage systems
+- Operators SHOULD maintain replicated copies of artifact stores
+- Operators SHOULD periodically verify stored artifact integrity
 
-Mitigation
+**Residual risk:** Storage manipulation is detectable through verification and chain hash validation, but prevention depends on storage infrastructure security.
 
-CEYO requires deterministic canonicalization procedures.
+---
 
-Canonicalization must produce identical serialized output across implementations when processing identical artifact data.
+### 4.9 Availability Attacks
 
-Reference implementations should follow established canonical JSON serialization standards.
+**Threat:** An attacker disrupts artifact generation or verification infrastructure through denial-of-service attacks, storage disruption, or verification service interruption.
 
-⸻
+**Impact:** Artifacts cannot be generated or verified during the disruption. If the AI system is coupled to artifact generation, availability attacks could affect inference.
 
-Artifact Suppression
+**Attack vectors:**
+- Denial-of-service attacks against verification endpoints
+- Storage system disruption (disk exhaustion, network partition)
+- Key management service unavailability
+- Compute resource exhaustion during sealing
 
-Description
+**Mitigation:**
+- CEYO is designed to be fail-open: artifact generation failures MUST NOT block inference operations
+- The sealing pipeline operates locally and does not depend on external network services (unless using KMS-backed keys)
+- Verification infrastructure MAY be distributed for redundancy
+- Artifact stores MAY be replicated across availability zones
+- Operators SHOULD monitor artifact generation and verification service health
 
-An attacker or system operator intentionally prevents artifact generation for certain events.
+**Residual risk:** Availability depends on infrastructure resilience. CEYO's fail-open design ensures AI system availability is not affected, but artifact coverage may have gaps during outages.
 
-This attack does not alter artifacts but instead removes evidence of events entirely.
+---
 
-⸻
+## 5. Out-of-Scope Threats
 
-Mitigation
+CEYO does not address the following threat categories:
 
-Artifact suppression cannot be fully prevented by CEYO.
+| Threat | Reason |
+|---|---|
+| Correctness of AI model outputs | CEYO records decisions, it does not evaluate them |
+| Bias or fairness in AI decisions | CEYO is evidence infrastructure, not a fairness tool |
+| Regulatory compliance evaluation | CEYO provides evidence; compliance determination is a governance function |
+| Adversarial attacks against AI models | Model robustness is outside the artifact pipeline |
+| Training data poisoning | Training-time threats are outside CEYO's scope |
+| Privacy of model inputs/outputs | CEYO captures policy-scoped references, not raw data; data privacy is governed by capture policy |
 
-However, mitigation strategies may include:
-	•	monitoring artifact generation rates
-	•	maintaining system audit logs
-	•	enforcing capture policies at infrastructure boundaries
+---
 
-Detection mechanisms may identify anomalies in artifact generation frequency.
-
-⸻
-
-Verification Abuse
-
-Description
-
-Attackers attempt to exploit verification systems to produce false validation results.
-
-Possible scenarios include:
-	•	submitting malformed artifacts
-	•	manipulating verification software
-	•	bypassing verification steps
-
-⸻
-
-Mitigation
-
-Verification software should enforce strict validation of:
-	•	artifact schema structure
-	•	canonicalization procedures
-	•	signature verification
-	•	hash recomputation
-
-Verification implementations should treat any validation error as verification failure.
-
-⸻
-
-Storage Manipulation
-
-Description
-
-An attacker attempts to modify stored artifact records after generation.
-
-If artifacts stored in archives or databases can be altered, evidentiary reliability may be compromised.
-
-⸻
-
-Mitigation
-
-Artifact storage systems should implement integrity protection mechanisms such as:
-	•	append-only logs
-	•	write-once storage systems
-	•	database audit trails
-	•	external artifact registries
-
-Cryptographic verification ensures that modified artifacts will fail validation.
-
-⸻
-
-Availability Attacks
-
-Description
-
-Attackers may attempt to disrupt artifact generation or verification infrastructure.
-
-Availability attacks may include:
-	•	denial-of-service attacks
-	•	storage disruption
-	•	verification service interruption
-
-⸻
-
-Mitigation
-
-CEYO is designed so artifact generation failures do not block inference operations.
-
-Systems may implement redundancy for artifact generation and storage services.
-
-Verification infrastructure may be distributed to ensure availability.
-
-⸻
-
-Out-of-Scope Threats
-
-CEYO does not attempt to address the following threat categories.
-	•	correctness of AI model outputs
-	•	bias or fairness in AI decisions
-	•	regulatory compliance evaluation
-	•	adversarial attacks against AI models
-	•	training data poisoning
-
-CEYO focuses exclusively on evidentiary artifact generation and verification.
-
-⸻
-
-Security Assumptions
+## 6. Security Assumptions
 
 The CEYO threat model assumes:
-	•	signing keys are securely managed by the system operator
-	•	canonicalization procedures are correctly implemented
-	•	verification software faithfully implements verification procedures
-	•	system operators follow defined capture policies
 
-Violations of these assumptions may affect artifact reliability.
+1. **Signing keys are securely managed** by the system operator using appropriate key management infrastructure
+2. **Canonicalization is correctly implemented** using a conforming RFC 8785 library
+3. **Verification software faithfully implements** the verification procedure defined in the protocol specification
+4. **Capture policies are correctly enforced** by the system operator
+5. **Cryptographic primitives are sound** — SHA-256 and ECDSA P-256 provide their stated security properties
 
-⸻
+Violations of these assumptions may compromise artifact reliability.
 
-Summary
+---
 
-CEYO provides cryptographically verifiable artifacts that allow independent parties to validate the integrity and authenticity of recorded AI system events.
+## 7. Summary
 
-The architecture mitigates risks associated with artifact tampering, schema manipulation, and verification inconsistency through deterministic canonicalization and cryptographic sealing.
+| Threat | Severity | Mitigated By |
+|---|---|---|
+| Artifact Tampering | High | SHA-256 hash + ECDSA signature |
+| Replay Attacks | Medium | Unique IDs, timestamps, sequence numbers |
+| Signing Key Compromise | Critical | HSM/KMS, key rotation, key revocation |
+| Schema Manipulation | Medium | Schema versioning, change control |
+| Canonicalization Inconsistencies | Low | RFC 8785 standard, test vectors |
+| Artifact Suppression | High | Monitoring, append-only storage, hash chaining |
+| Verification Abuse | Medium | Strict validation, security review |
+| Storage Manipulation | Medium | Hash chaining, append-only storage, replication |
+| Availability Attacks | Medium | Fail-open design, redundancy |
 
-While CEYO cannot prevent all threats related to AI systems, it provides infrastructure that enables transparent verification of artifact integrity independent of the original AI system.
+CEYO provides cryptographically verifiable artifacts that enable independent validation of AI system event records. The architecture mitigates integrity and authenticity threats through deterministic canonicalization and cryptographic sealing. Operational threats (suppression, availability, key management) require complementary infrastructure and governance controls.
