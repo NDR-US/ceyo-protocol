@@ -8,6 +8,7 @@ implementing the KeyProvider abstract class.
 from __future__ import annotations
 
 import abc
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -82,15 +83,21 @@ class LocalKeyProvider(KeyProvider):
         else:
             self._priv_path.parent.mkdir(parents=True, exist_ok=True)
             self._priv = ec.generate_private_key(ec.SECP256R1())
-            self._priv_path.write_bytes(
-                self._priv.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption(),
-                )
+            priv_pem = self._priv.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
             )
-        # Write public key
-        self._pub_path.write_bytes(self.get_public_key_pem())
+            self._priv_path.write_bytes(priv_pem)
+            # Restrict private key file to owner read/write only.
+            os.chmod(self._priv_path, 0o600)
+
+        # Write public key (inline to avoid circular _load_or_create call).
+        pub_pem = self._priv.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        self._pub_path.write_bytes(pub_pem)
         return self._priv
 
     def get_private_key(self) -> ec.EllipticCurvePrivateKey:
@@ -115,6 +122,11 @@ class LocalKeyProvider(KeyProvider):
 
     def registry(self) -> str:
         return "local"
+
+    @property
+    def public_key_path(self) -> Path:
+        """Path to the public key PEM file."""
+        return self._pub_path
 
 
 class InMemoryKeyProvider(KeyProvider):

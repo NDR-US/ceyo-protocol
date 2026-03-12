@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # Canonical JSON Schema for a CEYO sealed artifact envelope.
@@ -144,7 +145,6 @@ def _validate(obj: dict[str, Any], schema: dict[str, Any], path: str = "") -> li
         errors.append(f"{path or 'root'}: expected {schema['const']!r}, got {obj!r}")
 
     if "pattern" in schema and isinstance(obj, str):
-        import re
         if not re.match(schema["pattern"], obj):
             errors.append(f"{path or 'root'}: does not match pattern {schema['pattern']}")
 

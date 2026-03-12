@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -36,6 +37,27 @@ class VerificationResult:
     def __repr__(self) -> str:
         status = "PASSED" if self.ok else "FAILED"
         return f"VerificationResult({status}, passed={len(self.passed)}, failed={len(self.failed)})"
+
+
+def _canonicalize_for_verify(body: Any, scheme: str) -> bytes:
+    """Canonicalize body using the scheme declared in the envelope.
+
+    Raises RuntimeError if the declared scheme is unavailable.
+    """
+    if scheme == "RFC8785":
+        try:
+            import rfc8785
+        except ImportError:
+            raise RuntimeError(
+                "Artifact declares canonicalization scheme 'RFC8785' but the "
+                "'rfc8785' package is not installed. Install it to verify this artifact."
+            )
+        return rfc8785.dumps(body)
+
+    import json
+    return json.dumps(
+        body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 def verify_artifact(
@@ -82,27 +104,16 @@ def verify_artifact(
     body = artifact["body"]
     scheme = artifact["canonicalization"]["scheme"]
 
-    # Use the declared scheme for canonicalization
-    if scheme == "RFC8785":
-        try:
-            import rfc8785
-            canonical_bytes = rfc8785.dumps(body)
-        except ImportError:
-            # Fall back but warn
-            import json
-            canonical_bytes = json.dumps(
-                body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-            ).encode("utf-8")
-    else:
-        import json
-        canonical_bytes = json.dumps(
-            body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
+    try:
+        canonical_bytes = _canonicalize_for_verify(body, scheme)
+    except RuntimeError as exc:
+        result._fail(f"Canonicalization: {exc}")
+        return result
 
     actual_hash = hashlib.sha256(canonical_bytes).digest()
     expected_hash = b64u_decode(artifact["integrity"]["hash"]["value_b64u"])
 
-    if actual_hash != expected_hash:
+    if not hmac.compare_digest(actual_hash, expected_hash):
         result._fail("Hash mismatch")
         return result
     result._pass("Hash matches")
@@ -126,7 +137,7 @@ def verify_artifact(
             )
             expected_fp = b64u_decode(key_ref["public_key_fingerprint"]["value_b64u"])
             actual_fp = hashlib.sha256(pub_der).digest()
-            if actual_fp != expected_fp:
+            if not hmac.compare_digest(actual_fp, expected_fp):
                 result._fail("Key fingerprint mismatch")
                 return result
             result._pass("Key fingerprint matches")
