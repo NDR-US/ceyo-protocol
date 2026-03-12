@@ -16,9 +16,21 @@ from ceyo.verify import verify_artifact
 
 def cmd_seal(args: argparse.Namespace) -> None:
     """Seal a JSON record file."""
-    body: dict[str, Any] = json.loads(Path(args.record).read_text(encoding="utf-8"))
+    try:
+        body: dict[str, Any] = json.loads(Path(args.record).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"Error: record file not found: {args.record}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON in record file: {exc}", file=sys.stderr)
+        sys.exit(1)
+
     key_provider = LocalKeyProvider(args.key)
-    envelope = seal_body(body, key_provider, validate=not args.no_validate)
+    try:
+        envelope = seal_body(body, key_provider, validate=not args.no_validate)
+    except Exception as exc:
+        print(f"Error sealing artifact: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     output = args.output or str(Path(args.record).with_suffix(".sealed.json"))
     Path(output).write_text(
@@ -26,13 +38,25 @@ def cmd_seal(args: argparse.Namespace) -> None:
         encoding="utf-8",
     )
     print(f"Sealed: {output}")
-    print(f"Public key: {key_provider._pub_path}")
+    print(f"Public key: {key_provider.public_key_path}")
 
 
 def cmd_verify(args: argparse.Namespace) -> None:
     """Verify a sealed artifact against a public key."""
-    artifact: dict[str, Any] = json.loads(Path(args.artifact).read_text(encoding="utf-8"))
-    pub_pem = Path(args.pubkey).read_bytes()
+    try:
+        artifact: dict[str, Any] = json.loads(Path(args.artifact).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"Error: artifact file not found: {args.artifact}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON in artifact file: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        pub_pem = Path(args.pubkey).read_bytes()
+    except FileNotFoundError:
+        print(f"Error: public key file not found: {args.pubkey}", file=sys.stderr)
+        sys.exit(1)
 
     result = verify_artifact(artifact, pub_pem)
     for msg in result.passed:

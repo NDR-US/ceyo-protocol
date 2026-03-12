@@ -5,15 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "ceyo"
 version = "0.1.0"
-description = "Evidentiary infrastructure prototype for AI systems"
+description = "Evidentiary infrastructure for AI systems"
 readme = "README.md"
-license = "MIT"
+license = { text = "All Rights Reserved" }
 authors = [
     { name = "Brian Covarrubias", email = "bsecure.cov@gmail.com" },
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "cryptography",
+    "cryptography>=41",
     "rfc8785",
 ]
 
@@ -27,6 +27,10 @@ dev = [
 [project.scripts]
 ceyo = "ceyo.cli:main"
 
+[project.urls]
+Homepage = "https://ndr-us.github.io/ceyo-site/"
+Repository = "https://github.com/NDR-US/ceyo-protocol"
+
 [tool.ruff]
 target-version = "py310"
 line-length = 120
@@ -39,3 +43,6 @@ python_version = "3.10"
 warn_return_any = false
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["ceyo"]

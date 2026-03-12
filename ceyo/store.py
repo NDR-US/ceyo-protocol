@@ -62,7 +62,14 @@ class ArtifactStore:
 
         Returns:
             The sequence number of the stored artifact.
+
+        Raises:
+            ValueError: If required envelope fields are missing.
         """
+        missing = [f for f in ("artifact_id", "created_at") if f not in artifact]
+        if missing:
+            raise ValueError(f"Artifact missing required fields: {missing}")
+
         envelope_json = json.dumps(artifact, sort_keys=True, separators=(",", ":"))
         entry_hash = b64u(sha256(envelope_json.encode("utf-8")))
         prev_chain = self._last_chain_hash()
