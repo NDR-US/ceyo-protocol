@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ceyo:inclusion-proof:1.0",
+  "title": "CEYO Transparency Log Inclusion Proof",
+  "description": "A Merkle sibling-path proof that a specific artifact hash was included in the log at a given tree size and root. Produced by TransparencyLog.prove_inclusion() and verified by ceyo_verify.transparency.verify_inclusion_proof().",
+  "type": "object",
+  "required": ["artifact_id", "artifact_hash", "leaf_index", "tree_size", "root_hash", "hashes"],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "type": "string",
+      "pattern": "^ceyo_art_",
+      "description": "The artifact ID this proof is for."
+    },
+    "artifact_hash": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "Base64url-encoded SHA-256 hash of canonical(artifact_envelope). This is what is hashed to produce the Merkle leaf."
+    },
+    "leaf_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Zero-based index of this artifact's leaf in the Merkle tree."
+    },
+    "tree_size": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total number of leaves in the Merkle tree at the time this proof was generated."
+    },
+    "root_hash": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "Base64url-encoded SHA-256 Merkle root hash that the sibling path should reconstruct."
+    },
+    "hashes": {
+      "type": "array",
+      "description": "Ordered list of sibling hashes from the leaf level up to (but not including) the root. Each entry specifies the sibling's position relative to the current node at that level.",
+      "items": {
+        "type": "object",
+        "required": ["direction", "value_b64u"],
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": ["left", "right"],
+            "description": "'right' means the sibling is to the right of the current node (current ‖ sibling); 'left' means to the left (sibling ‖ current)."
+          },
+          "value_b64u": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "Base64url-encoded SHA-256 sibling hash."
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "artifact_id": "ceyo_art_abc123",
+      "artifact_hash": "YWJjZGVmZ2g",
+      "leaf_index": 0,
+      "tree_size": 4,
+      "root_hash": "cm9vdGhhc2g",
+      "hashes": [
+        { "direction": "right", "value_b64u": "c2libGluZzE" },
+        { "direction": "right", "value_b64u": "c2libGluZzI" }
+      ]
+    }
+  ]
+}

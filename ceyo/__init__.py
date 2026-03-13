@@ -5,6 +5,7 @@ from ceyo.crypto import b64u, b64u_decode, canonicalize, sha256
 from ceyo.keys import KeyManager, LocalKeyProvider
 from ceyo.seal import seal, seal_body
 from ceyo.store import ArtifactStore
+from ceyo.transparency_log import TransparencyLog
 from ceyo.verify import verify_artifact
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "ArtifactStore",
     "LocalKeyProvider",
     "KeyManager",
+    "TransparencyLog",
 ]

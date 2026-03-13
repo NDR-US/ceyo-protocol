@@ -92,12 +92,18 @@ def verify_artifact(
     # Step 1: Load public key
     try:
         pub_key = serialization.load_pem_public_key(public_key_pem)
-    except Exception as exc:
+    except (ValueError, TypeError, UnicodeDecodeError) as exc:
         result._fail(f"Key load: {exc}")
         return result
 
     if not isinstance(pub_key, ec.EllipticCurvePublicKey):
         result._fail(f"Key type: expected ECDSA, got {type(pub_key).__name__}")
+        return result
+
+    if not isinstance(pub_key.curve, ec.SECP256R1):
+        result._fail(
+            f"Key curve: expected secp256r1 (P-256), got {pub_key.curve.name!r}"
+        )
         return result
 
     # Step 2: Canonicalize and hash

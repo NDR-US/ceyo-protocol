@@ -64,10 +64,22 @@ class LocalKeyProvider(KeyProvider):
     If the private key does not exist, generates a new ECDSA P-256 key pair.
     """
 
-    def __init__(self, private_key_path: str | Path, public_key_path: Optional[str | Path] = None):
+    def __init__(
+        self,
+        private_key_path: str | Path,
+        public_key_path: Optional[str | Path] = None,
+        password: Optional[bytes] = None,
+    ):
         self._priv_path = Path(private_key_path)
         self._pub_path = Path(public_key_path) if public_key_path else self._priv_path.with_suffix(".pub.pem")
         self._priv: Optional[ec.EllipticCurvePrivateKey] = None
+        # Password for loading encrypted PEM keys.  Falls back to the
+        # CEYO_KEY_PASSWORD environment variable when not set explicitly.
+        if password is None:
+            env_pw = os.environ.get("CEYO_KEY_PASSWORD")
+            self._password: Optional[bytes] = env_pw.encode() if env_pw else None
+        else:
+            self._password = password
 
     def _load_or_create(self) -> ec.EllipticCurvePrivateKey:
         if self._priv is not None:
@@ -75,7 +87,7 @@ class LocalKeyProvider(KeyProvider):
 
         if self._priv_path.exists():
             key = serialization.load_pem_private_key(
-                self._priv_path.read_bytes(), password=None
+                self._priv_path.read_bytes(), password=self._password
             )
             if not isinstance(key, ec.EllipticCurvePrivateKey):
                 raise TypeError(f"Expected ECDSA private key, got {type(key).__name__}")

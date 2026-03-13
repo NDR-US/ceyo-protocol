@@ -9,6 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ceyo.schema import ENVELOPE_SCHEMA
 
-out = Path(__file__).resolve().parent.parent / "docs" / "artifact-envelope.schema.json"
+out = Path(__file__).resolve().parent.parent / "spec" / "artifact-schema.json"
 out.write_text(json.dumps(ENVELOPE_SCHEMA, indent=2) + "\n")
 print(f"Wrote {out}")
