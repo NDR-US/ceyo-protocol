@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Basic CEYO SDK usage examples."""
+"""CEYO SDK — runnable usage examples.
 
-import sys
-from pathlib import Path
+Run from the repo root after ``pip install -e .``::
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    python examples/basic_usage.py
+"""
 
-from ceyo import CeyoClient, ArtifactStore
+import os
+import tempfile
+
+from ceyo import ArtifactStore, CeyoClient
 from ceyo.keys import InMemoryKeyProvider
+from ceyo_verify import verify_artifact as standalone_verify
 
 
 def example_seal_and_verify():
@@ -27,37 +31,53 @@ def example_seal_and_verify():
     }
 
     envelope = client.seal(body, persist=False)
-    print(f"Sealed artifact: {envelope['artifact_id']}")
+    print(f"Artifact ID: {envelope['artifact_id']}")
 
     result = client.verify(envelope)
-    print(f"Verification: {result}")
+    print(f"SDK verify:  {result}")
     for msg in result.passed:
         print(f"  PASS: {msg}")
 
 
+def example_standalone_verify():
+    """Verify using the standalone ceyo_verify verifier (no SDK dependency)."""
+    print("\n=== Standalone Verify (ceyo_verify) ===")
+    kp = InMemoryKeyProvider()
+    body = {
+        "event": {
+            "event_id": "evt_standalone_001",
+            "type": "inference",
+            "occurred_at": "2026-03-09T12:00:00Z",
+        },
+    }
+    from ceyo.seal import seal_body
+    envelope = seal_body(body, kp)
+
+    result = standalone_verify(envelope, kp.get_public_key_pem())
+    print(f"Standalone verify: {result}")
+    assert result.ok, "Standalone verification should pass"
+    print("Independent verification confirmed.")
+
+
 def example_decorator():
     """Use the @trace decorator to automatically seal function calls."""
-    print("\n=== Decorator ===")
+    print("\n=== Decorator (@client.trace) ===")
     client = CeyoClient()
 
     @client.trace(event_type="classification", policy_id="DEMO-001")
     def classify(text: str) -> str:
-        # Simulated AI classification
         if "urgent" in text.lower():
             return "high_priority"
         return "normal"
 
-    result = classify("This is an urgent request")
-    print(f"Classification result: {result}")
-    print("Artifact sealed automatically")
+    label = classify("This is an urgent request")
+    print(f"Classification: {label}")
+    print("Artifact sealed automatically via @trace.")
 
 
 def example_store():
-    """Use the artifact store for append-only logging with chain integrity."""
+    """Append-only store with hash-chain integrity verification."""
     print("\n=== Artifact Store ===")
-    import tempfile
-    import os
-
     db_path = os.path.join(tempfile.mkdtemp(), "example.db")
 
     with ArtifactStore(db_path) as store:
@@ -75,14 +95,13 @@ def example_store():
             client.seal(body)
 
         print(f"Stored {store.count()} artifacts")
-
         ok, checked = store.verify_chain()
         print(f"Chain integrity: {'PASSED' if ok else 'FAILED'} ({checked} entries)")
-
-    os.unlink(db_path)
 
 
 if __name__ == "__main__":
     example_seal_and_verify()
+    example_standalone_verify()
     example_decorator()
     example_store()
+    print("\nAll examples completed successfully.")

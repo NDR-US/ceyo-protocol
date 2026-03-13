@@ -5,6 +5,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# ISO 8601 UTC datetime: 2026-03-09T12:00:00Z or 2026-03-09T12:00:00.000Z
+_DATETIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
+)
+
+# Base64url without padding (URL-safe chars only)
+_B64U_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
 # Canonical JSON Schema for a CEYO sealed artifact envelope.
 ENVELOPE_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -33,7 +41,11 @@ ENVELOPE_SCHEMA: dict[str, Any] = {
             },
         },
         "artifact_id": {"type": "string", "pattern": "^ceyo_art_"},
-        "created_at": {"type": "string", "format": "date-time"},
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$",
+        },
         "body": {"type": "object"},
         "canonicalization": {
             "type": "object",
@@ -53,7 +65,7 @@ ENVELOPE_SCHEMA: dict[str, Any] = {
                     "required": ["alg", "value_b64u", "covers"],
                     "properties": {
                         "alg": {"type": "string", "const": "SHA-256"},
-                        "value_b64u": {"type": "string"},
+                        "value_b64u": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
                         "covers": {"type": "string"},
                     },
                 },
@@ -63,7 +75,7 @@ ENVELOPE_SCHEMA: dict[str, Any] = {
                     "properties": {
                         "alg": {"type": "string", "const": "ECDSA-P256-SHA256"},
                         "format": {"type": "string", "const": "DER"},
-                        "value_b64u": {"type": "string"},
+                        "value_b64u": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
                         "covers": {"type": "string"},
                     },
                 },
@@ -80,7 +92,7 @@ ENVELOPE_SCHEMA: dict[str, Any] = {
                     "required": ["alg", "value_b64u", "covers"],
                     "properties": {
                         "alg": {"type": "string", "const": "SHA-256"},
-                        "value_b64u": {"type": "string"},
+                        "value_b64u": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
                         "covers": {"type": "string"},
                     },
                 },
@@ -103,7 +115,11 @@ BODY_SCHEMA: dict[str, Any] = {
             "properties": {
                 "event_id": {"type": "string"},
                 "type": {"type": "string"},
-                "occurred_at": {"type": "string", "format": "date-time"},
+                "occurred_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$",
+                },
                 "request_id": {"type": "string"},
             },
         },
