@@ -5,9 +5,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# ISO 8601 UTC datetime: 2026-03-09T12:00:00Z or 2026-03-09T12:00:00.000Z
+# ISO 8601 UTC datetime with strict range validation.
+# Year: 1000–2999, month: 01–12, day: 01–31, hour: 00–23, min/sec: 00–59.
 _DATETIME_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
+    r"^[12]\d{3}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])"
+    r"T([01]\d|2[0-3]):[0-5]\d:[0-5]\d"
+    r"(\.\d{1,6})?"
+    r"(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$"
 )
 
 # Base64url without padding (URL-safe chars only)
@@ -44,7 +48,7 @@ ENVELOPE_SCHEMA: dict[str, Any] = {
         "created_at": {
             "type": "string",
             "format": "date-time",
-            "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$",
+            "pattern": r"^[12]\d{3}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,6})?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$",
         },
         "body": {"type": "object"},
         "canonicalization": {
@@ -118,7 +122,7 @@ BODY_SCHEMA: dict[str, Any] = {
                 "occurred_at": {
                     "type": "string",
                     "format": "date-time",
-                    "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$",
+                    "pattern": r"^[12]\d{3}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,6})?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$",
                 },
                 "request_id": {"type": "string"},
             },
@@ -156,12 +160,24 @@ def _validate(obj: dict[str, Any], schema: dict[str, Any], path: str = "") -> li
     if schema_type == "string" and not isinstance(obj, str):
         errors.append(f"{path or 'root'}: expected string, got {type(obj).__name__}")
         return errors
+    if schema_type == "integer" and not isinstance(obj, int):
+        errors.append(f"{path or 'root'}: expected integer, got {type(obj).__name__}")
+        return errors
+    if schema_type == "array" and not isinstance(obj, list):
+        errors.append(f"{path or 'root'}: expected array, got {type(obj).__name__}")
+        return errors
 
     if "const" in schema and obj != schema["const"]:
         errors.append(f"{path or 'root'}: expected {schema['const']!r}, got {obj!r}")
 
+    if "enum" in schema and obj not in schema["enum"]:
+        errors.append(f"{path or 'root'}: expected one of {schema['enum']!r}, got {obj!r}")
+
     if "pattern" in schema and isinstance(obj, str):
-        if not re.match(schema["pattern"], obj):
+        # Guard against ReDoS on pathologically long input before regex matching.
+        if len(obj) > 2048:
+            errors.append(f"{path or 'root'}: string exceeds 2048 characters")
+        elif not re.match(schema["pattern"], obj):
             errors.append(f"{path or 'root'}: does not match pattern {schema['pattern']}")
 
     if schema_type == "object" and isinstance(obj, dict):
@@ -179,6 +195,16 @@ def _validate(obj: dict[str, Any], schema: dict[str, Any], path: str = "") -> li
             extra = set(obj.keys()) - set(props.keys())
             for key in sorted(extra):
                 errors.append(f"{path}.{key}: unexpected field" if path else f"{key}: unexpected field")
+
+    if schema_type == "array" and isinstance(obj, list):
+        if "minItems" in schema and len(obj) < schema["minItems"]:
+            errors.append(f"{path or 'root'}: expected at least {schema['minItems']} items, got {len(obj)}")
+        if "maxItems" in schema and len(obj) > schema["maxItems"]:
+            errors.append(f"{path or 'root'}: expected at most {schema['maxItems']} items, got {len(obj)}")
+        item_schema = schema.get("items")
+        if item_schema:
+            for i, item in enumerate(obj):
+                errors.extend(_validate(item, item_schema, f"{path or 'root'}[{i}]"))
 
     return errors
 

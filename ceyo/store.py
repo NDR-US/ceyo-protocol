@@ -48,11 +48,12 @@ class ArtifactStore:
         """)
         self._conn.commit()
 
-    def _last_chain_hash(self) -> str:
+    def _last_row(self) -> tuple[int, str]:
+        """Return (last_seq, last_chain_hash), or (0, GENESIS_HASH) for an empty store."""
         row = self._conn.execute(
-            "SELECT chain_hash FROM artifacts ORDER BY seq DESC LIMIT 1"
+            "SELECT seq, chain_hash FROM artifacts ORDER BY seq DESC LIMIT 1"
         ).fetchone()
-        return row[0] if row else self.GENESIS_HASH
+        return (row[0], row[1]) if row else (0, self.GENESIS_HASH)
 
     def append(self, artifact: dict[str, Any]) -> int:
         """Append a sealed artifact to the store.
@@ -72,8 +73,11 @@ class ArtifactStore:
 
         envelope_json = json.dumps(artifact, sort_keys=True, separators=(",", ":"))
         entry_hash = b64u(sha256(envelope_json.encode("utf-8")))
-        prev_chain = self._last_chain_hash()
-        chain_hash = b64u(sha256(f"{prev_chain}:{entry_hash}".encode("utf-8")))
+        last_seq, prev_chain = self._last_row()
+        next_seq = last_seq + 1
+        # Include next_seq in the chain so deletions are detectable: removing an
+        # entry breaks seq continuity and invalidates every subsequent chain_hash.
+        chain_hash = b64u(sha256(f"{prev_chain}:{next_seq}:{entry_hash}".encode("utf-8")))
 
         cursor = self._conn.execute(
             "INSERT INTO artifacts (artifact_id, created_at, envelope, entry_hash, chain_hash) "
@@ -128,8 +132,9 @@ class ArtifactStore:
             if actual_entry != stored_entry_hash:
                 return False, checked
 
-            # Recompute chain hash
-            actual_chain = b64u(sha256(f"{prev_chain}:{actual_entry}".encode("utf-8")))
+            # Recompute chain hash — seq must be contiguous; any deleted row
+            # will cause a mismatch on all subsequent entries.
+            actual_chain = b64u(sha256(f"{prev_chain}:{seq}:{actual_entry}".encode("utf-8")))
             if actual_chain != stored_chain_hash:
                 return False, checked
 
