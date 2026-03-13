@@ -1041,5 +1041,421 @@ class TestStandaloneVerifier(TestCase):
         self.assertTrue(result.ok)
 
 
+# ---------------------------------------------------------------------------
+# Transparency log
+# ---------------------------------------------------------------------------
+
+from ceyo.transparency_log import (
+    TransparencyLog,
+    compute_inclusion_proof,
+    compute_root,
+    _leaf_hash,
+    _node_hash,
+)
+from ceyo_verify.transparency import verify_inclusion_proof
+
+
+class TestMerkleTree(TestCase):
+    """Unit tests for the Merkle tree primitives."""
+
+    def test_empty_tree(self):
+        root = compute_root([])
+        self.assertEqual(root, sha256(b"ceyo:empty-tree"))
+
+    def test_single_leaf(self):
+        leaf = sha256(b"single")
+        self.assertEqual(compute_root([leaf]), leaf)
+
+    def test_two_leaves(self):
+        a = sha256(b"a")
+        b_ = sha256(b"b")
+        expected = _node_hash(a, b_)
+        self.assertEqual(compute_root([a, b_]), expected)
+
+    def test_three_leaves_odd_promotion(self):
+        a, b_, c = sha256(b"a"), sha256(b"b"), sha256(b"c")
+        root = compute_root([a, b_, c])
+        # Level 1: [node(a,b), c_promoted]
+        # Root: node(node(a,b), c)
+        expected = _node_hash(_node_hash(a, b_), c)
+        self.assertEqual(root, expected)
+
+    def test_four_leaves(self):
+        leaves = [sha256(bytes([i])) for i in range(4)]
+        root = compute_root(leaves)
+        l1 = _node_hash(leaves[0], leaves[1])
+        l2 = _node_hash(leaves[2], leaves[3])
+        expected = _node_hash(l1, l2)
+        self.assertEqual(root, expected)
+
+    def test_deterministic(self):
+        leaves = [sha256(bytes([i])) for i in range(7)]
+        self.assertEqual(compute_root(leaves), compute_root(leaves))
+
+    def test_inclusion_proof_single(self):
+        leaf = _leaf_hash(sha256(b"x"))
+        # Tree of 1: no siblings needed
+        proof = compute_inclusion_proof(0, [leaf])
+        self.assertEqual(proof, [])
+
+    def test_inclusion_proof_two_leaves(self):
+        a = _leaf_hash(sha256(b"a"))
+        b_ = _leaf_hash(sha256(b"b"))
+        # Proof for index 0: sibling is b (right)
+        proof = compute_inclusion_proof(0, [a, b_])
+        self.assertEqual(len(proof), 1)
+        self.assertEqual(proof[0][0], "right")
+        self.assertEqual(proof[0][1], b_)
+        # Proof for index 1: sibling is a (left)
+        proof2 = compute_inclusion_proof(1, [a, b_])
+        self.assertEqual(proof2[0][0], "left")
+        self.assertEqual(proof2[0][1], a)
+
+    def test_inclusion_proof_roundtrip(self):
+        """Verify that recomputing root from proof matches compute_root."""
+        leaves = [_leaf_hash(sha256(bytes([i]))) for i in range(8)]
+        root = compute_root(leaves)
+        for idx in range(len(leaves)):
+            proof_steps = compute_inclusion_proof(idx, leaves)
+            current = leaves[idx]
+            for direction, sibling in proof_steps:
+                if direction == "right":
+                    current = _node_hash(current, sibling)
+                else:
+                    current = _node_hash(sibling, current)
+            self.assertEqual(current, root, f"Proof failed for index {idx}")
+
+    def test_inclusion_proof_odd_tree(self):
+        """Inclusion proof still reconstructs root for trees with odd counts."""
+        for n in (3, 5, 7):
+            leaves = [_leaf_hash(sha256(bytes([i]))) for i in range(n)]
+            root = compute_root(leaves)
+            for idx in range(n):
+                steps = compute_inclusion_proof(idx, leaves)
+                cur = leaves[idx]
+                for direction, sib in steps:
+                    cur = _node_hash(cur, sib) if direction == "right" else _node_hash(sib, cur)
+                self.assertEqual(cur, root, f"n={n}, idx={idx}")
+
+    def test_inclusion_proof_empty_raises(self):
+        with self.assertRaises(ValueError):
+            compute_inclusion_proof(0, [])
+
+    def test_inclusion_proof_out_of_range_raises(self):
+        leaf = _leaf_hash(sha256(b"x"))
+        with self.assertRaises(IndexError):
+            compute_inclusion_proof(5, [leaf])
+
+
+class TestTransparencyLog(TestCase):
+    """Integration tests for TransparencyLog."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, "test_log.db")
+        self.kp = InMemoryKeyProvider()
+        self.log = TransparencyLog(self.db_path, self.kp)
+
+    def tearDown(self):
+        self.log.close()
+        shutil.rmtree(self.tmpdir)
+
+    def _make_artifact(self):
+        return seal(
+            event_id=f"evt_{os.urandom(8).hex()}",
+            event_type="test",
+            occurred_at="2026-03-13T12:00:00Z",
+            key_provider=self.kp,
+        )
+
+    def test_append_returns_entry(self):
+        art = self._make_artifact()
+        entry = self.log.append(art)
+        self.assertEqual(entry["artifact_id"], art["artifact_id"])
+        self.assertEqual(entry["seq"], 1)
+        self.assertIn("artifact_hash", entry)
+        self.assertIn("leaf_hash", entry)
+        self.assertIn("logged_at", entry)
+
+    def test_tree_size(self):
+        self.assertEqual(self.log.tree_size(), 0)
+        self.log.append(self._make_artifact())
+        self.assertEqual(self.log.tree_size(), 1)
+        self.log.append(self._make_artifact())
+        self.assertEqual(self.log.tree_size(), 2)
+
+    def test_root_hash_changes_on_append(self):
+        root0 = self.log.root_hash()
+        self.log.append(self._make_artifact())
+        root1 = self.log.root_hash()
+        self.assertNotEqual(root0, root1)
+
+    def test_get_entry(self):
+        art = self._make_artifact()
+        self.log.append(art)
+        entry = self.log.get_entry(art["artifact_id"])
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["artifact_id"], art["artifact_id"])
+
+    def test_get_entry_missing(self):
+        self.assertIsNone(self.log.get_entry("ceyo_art_nonexistent"))
+
+    def test_duplicate_append_raises(self):
+        art = self._make_artifact()
+        self.log.append(art)
+        with self.assertRaises(Exception):  # UNIQUE constraint
+            self.log.append(art)
+
+    def test_missing_artifact_id_raises(self):
+        with self.assertRaises(ValueError):
+            self.log.append({"body": "no id"})
+
+    def test_list_entries(self):
+        arts = [self._make_artifact() for _ in range(3)]
+        for a in arts:
+            self.log.append(a)
+        entries = self.log.list_entries(limit=10)
+        self.assertEqual(len(entries), 3)
+        # Should be in reverse order (newest first)
+        self.assertEqual(entries[0]["seq"], 3)
+
+    def test_checkpoint_structure(self):
+        self.log.append(self._make_artifact())
+        cp = self.log.checkpoint()
+        self.assertEqual(cp["product"], "CEYO")
+        self.assertEqual(cp["type"], "transparency-checkpoint")
+        self.assertEqual(cp["tree_size"], 1)
+        self.assertIn("root_hash", cp)
+        self.assertIn("created_at", cp)
+        self.assertIn("sig", cp)
+        self.assertEqual(cp["sig"]["alg"], "ECDSA-P256-SHA256")
+        self.assertIn("key_reference", cp)
+
+    def test_checkpoint_signature_valid(self):
+        self.log.append(self._make_artifact())
+        cp = self.log.checkpoint()
+        pub_pem = self.kp.get_public_key_pem()
+        # Verify via standalone transparency verifier
+        art = self._make_artifact()
+        self.log.append(art)
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        cp2 = self.log.checkpoint()
+        result = verify_inclusion_proof(proof, cp2, pub_pem)
+        self.assertTrue(result.ok, result.failed)
+
+    def test_latest_checkpoint_none(self):
+        self.assertIsNone(self.log.latest_checkpoint())
+
+    def test_latest_checkpoint_returns_last(self):
+        self.log.append(self._make_artifact())
+        cp1 = self.log.checkpoint()
+        self.log.append(self._make_artifact())
+        cp2 = self.log.checkpoint()
+        latest = self.log.latest_checkpoint()
+        self.assertEqual(latest["tree_size"], cp2["tree_size"])
+
+    def test_prove_inclusion_structure(self):
+        arts = [self._make_artifact() for _ in range(4)]
+        for a in arts:
+            self.log.append(a)
+        proof = self.log.prove_inclusion(arts[0]["artifact_id"])
+        self.assertEqual(proof["artifact_id"], arts[0]["artifact_id"])
+        self.assertEqual(proof["leaf_index"], 0)
+        self.assertEqual(proof["tree_size"], 4)
+        self.assertIn("root_hash", proof)
+        self.assertIn("hashes", proof)
+
+    def test_prove_inclusion_missing_raises(self):
+        with self.assertRaises(KeyError):
+            self.log.prove_inclusion("ceyo_art_nonexistent")
+
+    def test_context_manager(self):
+        art = self._make_artifact()
+        db2 = os.path.join(self.tmpdir, "ctx.db")
+        with TransparencyLog(db2, self.kp) as log2:
+            log2.append(art)
+            self.assertEqual(log2.tree_size(), 1)
+
+
+class TestInclusionProofVerification(TestCase):
+    """Test standalone inclusion-proof verification via ceyo_verify.transparency."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, "vlog.db")
+        self.kp = InMemoryKeyProvider()
+        self.log = TransparencyLog(self.db_path, self.kp)
+
+    def tearDown(self):
+        self.log.close()
+        shutil.rmtree(self.tmpdir)
+
+    def _make_and_log(self):
+        art = seal(
+            event_id=f"evt_{os.urandom(8).hex()}",
+            event_type="test",
+            occurred_at="2026-03-13T12:00:00Z",
+            key_provider=self.kp,
+        )
+        self.log.append(art)
+        return art
+
+    def test_proof_only_passes(self):
+        art = self._make_and_log()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        result = verify_inclusion_proof(proof)
+        self.assertTrue(result.ok, result.failed)
+        self.assertIn("Merkle root matches", result.passed)
+
+    def test_proof_with_checkpoint_passes(self):
+        art = self._make_and_log()
+        cp = self.log.checkpoint()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        pub_pem = self.kp.get_public_key_pem()
+        result = verify_inclusion_proof(proof, cp, pub_pem)
+        self.assertTrue(result.ok, result.failed)
+        self.assertIn("Checkpoint signature valid", result.passed)
+        self.assertIn("Proof root matches checkpoint root", result.passed)
+        self.assertIn("Proof tree_size matches checkpoint", result.passed)
+
+    def test_proof_with_artifact_passes(self):
+        art = self._make_and_log()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        result = verify_inclusion_proof(proof, artifact=art)
+        self.assertTrue(result.ok, result.failed)
+        self.assertIn("Artifact hash matches envelope", result.passed)
+
+    def test_tampered_artifact_hash_fails(self):
+        art = self._make_and_log()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        proof["artifact_hash"] = b64u(sha256(b"tampered"))
+        result = verify_inclusion_proof(proof)
+        self.assertFalse(result.ok)
+
+    def test_tampered_sibling_hash_fails(self):
+        for _ in range(3):
+            self._make_and_log()
+        arts = [self._make_and_log() for _ in range(1)]
+        proof = self.log.prove_inclusion(arts[0]["artifact_id"])
+        if proof["hashes"]:
+            proof["hashes"][0]["value_b64u"] = b64u(sha256(b"bad"))
+        result = verify_inclusion_proof(proof)
+        self.assertFalse(result.ok)
+
+    def test_wrong_checkpoint_pubkey_fails(self):
+        art = self._make_and_log()
+        cp = self.log.checkpoint()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        wrong_kp = InMemoryKeyProvider()
+        result = verify_inclusion_proof(proof, cp, wrong_kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("Checkpoint signature invalid" in f for f in result.failed))
+
+    def test_checkpoint_root_mismatch_fails(self):
+        art = self._make_and_log()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        cp = self.log.checkpoint()
+        # Mutate checkpoint root after signing
+        cp["root_hash"] = b64u(sha256(b"wrong_root"))
+        pub_pem = self.kp.get_public_key_pem()
+        result = verify_inclusion_proof(proof, cp, pub_pem)
+        self.assertFalse(result.ok)
+
+    def test_checkpoint_tree_size_mismatch_fails(self):
+        art = self._make_and_log()
+        cp = self.log.checkpoint()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        proof["tree_size"] = 999  # tamper
+        pub_pem = self.kp.get_public_key_pem()
+        result = verify_inclusion_proof(proof, cp, pub_pem)
+        self.assertFalse(result.ok)
+
+    def test_missing_proof_fields_fails(self):
+        result = verify_inclusion_proof({"artifact_id": "x"})
+        self.assertFalse(result.ok)
+        self.assertTrue(any("Proof missing field" in f for f in result.failed))
+
+    def test_checkpoint_without_pubkey_fails(self):
+        art = self._make_and_log()
+        cp = self.log.checkpoint()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        result = verify_inclusion_proof(proof, cp)  # no pubkey
+        self.assertFalse(result.ok)
+
+    def test_many_artifacts_all_proofs_valid(self):
+        arts = [self._make_and_log() for _ in range(10)]
+        cp = self.log.checkpoint()
+        pub_pem = self.kp.get_public_key_pem()
+        for art in arts:
+            proof = self.log.prove_inclusion(art["artifact_id"])
+            result = verify_inclusion_proof(proof, cp, pub_pem)
+            self.assertTrue(result.ok, f"{art['artifact_id']}: {result.failed}")
+
+    def test_verification_result_repr(self):
+        art = self._make_and_log()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        result = verify_inclusion_proof(proof)
+        self.assertIn("PASSED", repr(result))
+
+    def test_verification_result_bool(self):
+        art = self._make_and_log()
+        proof = self.log.prove_inclusion(art["artifact_id"])
+        result = verify_inclusion_proof(proof)
+        self.assertTrue(bool(result))
+
+
+class TestTransparencyLogClientIntegration(TestCase):
+    """Test CeyoClient with optional TransparencyLog."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, "client_log.db")
+        self.kp = InMemoryKeyProvider()
+        self.log = TransparencyLog(self.db_path, self.kp)
+        self.client = CeyoClient(key_provider=self.kp, log=self.log)
+
+    def tearDown(self):
+        self.log.close()
+        shutil.rmtree(self.tmpdir)
+
+    def _body(self):
+        return {
+            "event": {
+                "event_id": f"evt_{os.urandom(8).hex()}",
+                "type": "inference",
+                "occurred_at": "2026-03-13T12:00:00Z",
+            },
+            "disclosure_tier": "internal",
+        }
+
+    def test_seal_auto_logs(self):
+        self.client.seal(self._body())
+        self.assertEqual(self.log.tree_size(), 1)
+
+    def test_seal_multiple_logged(self):
+        for _ in range(5):
+            self.client.seal(self._body())
+        self.assertEqual(self.log.tree_size(), 5)
+
+    def test_seal_no_persist_skips_log(self):
+        self.client.seal(self._body(), persist=False)
+        self.assertEqual(self.log.tree_size(), 0)
+
+    def test_proof_verifiable_after_client_seal(self):
+        env = self.client.seal(self._body())
+        cp = self.log.checkpoint()
+        proof = self.log.prove_inclusion(env["artifact_id"])
+        pub_pem = self.kp.get_public_key_pem()
+        result = verify_inclusion_proof(proof, cp, pub_pem)
+        self.assertTrue(result.ok, result.failed)
+
+    def test_client_without_log_unchanged(self):
+        client_no_log = CeyoClient(key_provider=self.kp)
+        self.assertIsNone(client_no_log.log)
+        body = self._body()
+        env = client_no_log.seal(body)
+        self.assertIn("artifact_id", env)
+
+
 if __name__ == "__main__":
     main()

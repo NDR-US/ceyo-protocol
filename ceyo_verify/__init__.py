@@ -15,11 +15,19 @@ Usage (Python API)::
     print(result)   # VerificationResult(PASSED, ...)
     assert result.ok
 
+Transparency log inclusion proofs::
+
+    from ceyo_verify import verify_inclusion_proof
+
+    result = verify_inclusion_proof(proof, checkpoint, pubkey_pem)
+    assert result.ok
+
 Usage (CLI)::
 
     python -m ceyo_verify sealed.json public_key.pem
 """
 
+from ceyo_verify.transparency import verify_inclusion_proof
 from ceyo_verify.verifier import VerificationResult, verify_artifact
 
-__all__ = ["VerificationResult", "verify_artifact"]
+__all__ = ["VerificationResult", "verify_artifact", "verify_inclusion_proof"]

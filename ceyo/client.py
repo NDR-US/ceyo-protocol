@@ -6,7 +6,7 @@ import functools
 import hashlib
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ceyo.crypto import b64u
 from ceyo.keys import InMemoryKeyProvider, KeyProvider
@@ -14,11 +14,15 @@ from ceyo.seal import seal_body
 from ceyo.store import ArtifactStore
 from ceyo.verify import VerificationResult, verify_artifact
 
+if TYPE_CHECKING:
+    from ceyo.transparency_log import TransparencyLog
+
 
 class CeyoClient:
     """High-level client for sealing and verifying CEYO artifacts.
 
-    Combines key management, sealing, verification, and optional storage.
+    Combines key management, sealing, verification, optional storage,
+    and an optional transparency log.
 
     Usage:
         client = CeyoClient(key_provider=LocalKeyProvider("keys/private.pem"))
@@ -39,9 +43,11 @@ class CeyoClient:
         self,
         key_provider: KeyProvider | None = None,
         store: ArtifactStore | None = None,
+        log: Optional[TransparencyLog] = None,
     ):
         self.key_provider = key_provider or InMemoryKeyProvider()
         self.store = store
+        self.log = log
 
     def seal(
         self,
@@ -63,6 +69,8 @@ class CeyoClient:
         envelope = seal_body(body, self.key_provider, validate=validate)
         if persist and self.store is not None:
             self.store.append(envelope)
+        if persist and self.log is not None:
+            self.log.append(envelope)
         return envelope
 
     def verify(
