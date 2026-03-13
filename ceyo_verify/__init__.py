@@ -28,6 +28,12 @@ Usage (CLI)::
 """
 
 from ceyo_verify.transparency import verify_inclusion_proof
-from ceyo_verify.verifier import VerificationResult, verify_artifact
+from ceyo_verify.verifier import VerificationResult, load_artifact, load_pubkey, verify_artifact
 
-__all__ = ["VerificationResult", "verify_artifact", "verify_inclusion_proof"]
+__all__ = [
+    "VerificationResult",
+    "verify_artifact",
+    "verify_inclusion_proof",
+    "load_artifact",
+    "load_pubkey",
+]

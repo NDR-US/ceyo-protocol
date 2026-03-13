@@ -86,7 +86,7 @@ _REQUIRED_HASH = {"alg", "value_b64u", "covers"}
 _REQUIRED_SIG  = {"alg", "format", "value_b64u", "covers"}
 _REQUIRED_KEY_REF = {"registry", "key_id", "public_key_fingerprint"}
 _REQUIRED_FP = {"alg", "value_b64u", "covers"}
-_ARTIFACT_ID_RE = re.compile(r"^ceyo_art_")
+_ARTIFACT_ID_RE = re.compile(r"^ceyo_art_[0-9a-f]{26}$")
 
 
 def _check_envelope(artifact: dict[str, Any]) -> list[str]:
@@ -107,7 +107,9 @@ def _check_envelope(artifact: dict[str, Any]) -> list[str]:
 
     aid = artifact.get("artifact_id", "")
     if not isinstance(aid, str) or not _ARTIFACT_ID_RE.match(aid):
-        errors.append(f"artifact_id: must be a string starting with 'ceyo_art_', got {aid!r}")
+        errors.append(
+            f"artifact_id: must match ^ceyo_art_[0-9a-f]{{26}}$, got {aid!r}"
+        )
 
     integrity = artifact.get("integrity", {})
     if not isinstance(integrity, dict):
@@ -155,6 +157,9 @@ def _check_envelope(artifact: dict[str, Any]) -> list[str]:
     else:
         if canon.get("scope") != "body":
             errors.append(f"canonicalization.scope: expected 'body', got {canon.get('scope')!r}")
+        scheme = canon.get("scheme")
+        if scheme not in {"RFC8785", "deterministic-json-fallback"}:
+            errors.append(f"canonicalization.scheme: unknown scheme {scheme!r}; expected 'RFC8785' or 'deterministic-json-fallback'")
 
     return errors
 
@@ -229,12 +234,16 @@ def verify_artifact(
     # Step 1 — load key
     try:
         pub_key = serialization.load_pem_public_key(public_key_pem)
-    except Exception as exc:
+    except (ValueError, TypeError, UnicodeDecodeError) as exc:
         result._fail(f"Key load: {exc}")
         return result
 
     if not isinstance(pub_key, ec.EllipticCurvePublicKey):
         result._fail(f"Key type: expected ECDSA EllipticCurvePublicKey, got {type(pub_key).__name__}")
+        return result
+
+    if not isinstance(pub_key.curve, ec.SECP256R1):
+        result._fail(f"Key curve: expected secp256r1 (P-256), got {pub_key.curve.name!r}")
         return result
 
     # Step 2 — canonicalize body and verify hash
@@ -251,7 +260,7 @@ def verify_artifact(
 
     try:
         expected_hash = _b64u_decode(artifact["integrity"]["hash"]["value_b64u"])
-    except Exception as exc:
+    except (ValueError, UnicodeDecodeError) as exc:
         result._fail(f"Hash decode: {exc}")
         return result
 
@@ -263,7 +272,7 @@ def verify_artifact(
     # Step 3 — verify signature
     try:
         sig_bytes = _b64u_decode(artifact["integrity"]["sig"]["value_b64u"])
-    except Exception as exc:
+    except (ValueError, UnicodeDecodeError) as exc:
         result._fail(f"Signature decode: {exc}")
         return result
 
@@ -286,7 +295,7 @@ def verify_artifact(
             actual_fp = hashlib.sha256(pub_der).digest()
             try:
                 expected_fp = _b64u_decode(fp_block["value_b64u"])
-            except Exception as exc:
+            except (ValueError, UnicodeDecodeError) as exc:
                 result._fail(f"Fingerprint decode: {exc}")
                 return result
             if not hmac.compare_digest(actual_fp, expected_fp):

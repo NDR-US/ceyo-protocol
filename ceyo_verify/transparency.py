@@ -7,14 +7,19 @@ log inclusion proof with nothing more than those packages.
 
 Verification steps
 ------------------
-1. Validate the proof structure (required fields, sensible values).
+1. Validate the proof structure (required fields, sensible values,
+   proof-depth bound consistent with tree_size).
 2. Recompute the Merkle leaf hash from ``proof["artifact_hash"]``.
 3. Walk the sibling-hash path, hashing at each level.
-4. Compare the computed root to ``proof["root_hash"]``.
+4. Compare the computed root to ``proof["root_hash"]`` (timing-safe,
+   decoded bytes).
 5. *(Optional)* If a signed checkpoint is supplied:
-   a. Load the checkpoint signing key and verify the ECDSA signature.
-   b. Confirm ``proof["root_hash"]`` == ``checkpoint["root_hash"]``.
-   c. Confirm ``proof["tree_size"]`` == ``checkpoint["tree_size"]``.
+   a. Validate ``product == "CEYO"`` and ``type == "transparency-checkpoint"``.
+   b. Load the checkpoint signing key and verify it is ECDSA P-256 (secp256r1).
+   c. Verify the ECDSA signature over the canonical checkpoint body.
+   d. Confirm ``proof["root_hash"]`` matches ``checkpoint["root_hash"]``
+      (timing-safe, decoded bytes).
+   e. Confirm ``proof["tree_size"]`` == ``checkpoint["tree_size"]``.
 6. *(Optional)* If the original *artifact* envelope is supplied, verify
    that its canonical hash matches ``proof["artifact_hash"]``.
 
@@ -35,6 +40,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -44,6 +50,10 @@ from cryptography.hazmat.primitives.asymmetric import ec, utils
 # ---------------------------------------------------------------------------
 # Base64url helpers (no ceyo dependency)
 # ---------------------------------------------------------------------------
+
+# Maximum accepted proof depth.  ceil(log2(2**63)) = 63 leaves plenty of
+# headroom while preventing pathological proof arrays.
+_MAX_PROOF_DEPTH = 63
 
 
 def _b64u_decode(s: str) -> bytes:
@@ -199,6 +209,24 @@ def verify_inclusion_proof(
         result._fail(f"leaf_index {leaf_index} >= tree_size {tree_size}")
         return result
 
+    # Validate proof depth is consistent with the declared tree size.
+    # An attacker supplying excess siblings could construct a false subtree
+    # that still matches the expected root.
+    max_depth = math.ceil(math.log2(tree_size)) if tree_size > 1 else 0
+    hashes_list = proof.get("hashes", [])
+    if not isinstance(hashes_list, list):
+        result._fail("Proof hashes must be a list")
+        return result
+    if len(hashes_list) > max_depth:
+        result._fail(
+            f"Proof has {len(hashes_list)} hash steps but tree_size {tree_size} "
+            f"allows at most {max_depth}"
+        )
+        return result
+    if len(hashes_list) > _MAX_PROOF_DEPTH:
+        result._fail(f"Proof depth {len(hashes_list)} exceeds maximum {_MAX_PROOF_DEPTH}")
+        return result
+
     try:
         artifact_hash_bytes = _b64u_decode(proof["artifact_hash"])
     except Exception as exc:
@@ -212,8 +240,7 @@ def verify_inclusion_proof(
     # ----------------------------------------------------------------
     if artifact is not None:
         computed_ah = hashlib.sha256(_canonicalize(artifact)).digest()
-        expected_ah = artifact_hash_bytes
-        if not hmac.compare_digest(computed_ah, expected_ah):
+        if not hmac.compare_digest(computed_ah, artifact_hash_bytes):
             result._fail(
                 "Artifact hash mismatch: envelope does not match proof artifact_hash"
             )
@@ -225,13 +252,19 @@ def verify_inclusion_proof(
     # ----------------------------------------------------------------
     current = _leaf_hash(artifact_hash_bytes)
 
-    for i, step in enumerate(proof["hashes"]):
+    for i, step in enumerate(hashes_list):
+        if not isinstance(step, dict):
+            result._fail(f"hashes[{i}] must be an object, got {type(step).__name__}")
+            return result
         direction = step.get("direction")
         if direction not in ("left", "right"):
             result._fail(
                 f"hashes[{i}].direction must be 'left' or 'right', "
                 f"got {direction!r}"
             )
+            return result
+        if "value_b64u" not in step:
+            result._fail(f"hashes[{i}] missing 'value_b64u'")
             return result
         try:
             sibling = _b64u_decode(step["value_b64u"])
@@ -250,6 +283,7 @@ def verify_inclusion_proof(
         result._fail(f"root_hash decode error: {exc}")
         return result
 
+    # Compare decoded bytes, not base64url strings, for timing-safe correctness
     if not hmac.compare_digest(current, expected_root_bytes):
         result._fail(
             "Inclusion proof invalid: computed root does not match proof root_hash"
@@ -269,10 +303,23 @@ def verify_inclusion_proof(
         )
         return result
 
-    # 4a — load checkpoint signing key
+    # 4a — validate checkpoint const fields before touching the key
+    if checkpoint.get("product") != "CEYO":
+        result._fail(
+            f"Checkpoint product: expected 'CEYO', got {checkpoint.get('product')!r}"
+        )
+        return result
+    if checkpoint.get("type") != "transparency-checkpoint":
+        result._fail(
+            f"Checkpoint type: expected 'transparency-checkpoint', "
+            f"got {checkpoint.get('type')!r}"
+        )
+        return result
+
+    # 4b — load and validate checkpoint signing key
     try:
         cp_pubkey = serialization.load_pem_public_key(checkpoint_pubkey_pem)
-    except Exception as exc:
+    except (ValueError, TypeError, UnicodeDecodeError) as exc:
         result._fail(f"Checkpoint key load error: {exc}")
         return result
 
@@ -283,7 +330,15 @@ def verify_inclusion_proof(
         )
         return result
 
-    # 4b — verify checkpoint structure
+    # Enforce P-256 (secp256r1) — reject weaker or stronger curves
+    if not isinstance(cp_pubkey.curve, ec.SECP256R1):
+        result._fail(
+            f"Checkpoint key curve: expected secp256r1 (P-256), "
+            f"got {cp_pubkey.curve.name!r}"
+        )
+        return result
+
+    # 4c — validate remaining required checkpoint structure
     required_cp = {
         "product", "type", "tree_size", "root_hash",
         "created_at", "sig", "key_reference",
@@ -294,7 +349,7 @@ def verify_inclusion_proof(
             result._fail(f"Checkpoint missing field: {f}")
         return result
 
-    # 4c — reconstruct signed body and verify signature
+    # 4d — reconstruct signed body and verify signature
     checkpoint_body = {
         "product": checkpoint["product"],
         "type": checkpoint["type"],
@@ -307,7 +362,7 @@ def verify_inclusion_proof(
     sig_block = checkpoint.get("sig", {})
     try:
         sig_bytes = _b64u_decode(sig_block["value_b64u"])
-    except Exception as exc:
+    except (KeyError, ValueError, UnicodeDecodeError) as exc:
         result._fail(f"Checkpoint signature decode error: {exc}")
         return result
 
@@ -322,10 +377,15 @@ def verify_inclusion_proof(
         return result
     result._pass("Checkpoint signature valid")
 
-    # 4d — proof root_hash must match checkpoint root_hash
-    if not hmac.compare_digest(
-        proof["root_hash"].encode(), checkpoint["root_hash"].encode()
-    ):
+    # 4e — proof root_hash must match checkpoint root_hash (decoded bytes)
+    try:
+        proof_root_bytes = _b64u_decode(proof["root_hash"])
+        cp_root_bytes = _b64u_decode(checkpoint["root_hash"])
+    except (ValueError, UnicodeDecodeError) as exc:
+        result._fail(f"root_hash comparison decode error: {exc}")
+        return result
+
+    if not hmac.compare_digest(proof_root_bytes, cp_root_bytes):
         result._fail(
             f"Proof root_hash {proof['root_hash']!r} does not match "
             f"checkpoint root_hash {checkpoint['root_hash']!r}"
@@ -333,7 +393,7 @@ def verify_inclusion_proof(
         return result
     result._pass("Proof root matches checkpoint root")
 
-    # 4e — proof tree_size must match checkpoint tree_size
+    # 4f — proof tree_size must match checkpoint tree_size
     if proof["tree_size"] != checkpoint["tree_size"]:
         result._fail(
             f"Proof tree_size {proof['tree_size']} does not match "

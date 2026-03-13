@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import warnings
 from typing import Any
 
 try:
@@ -33,6 +34,13 @@ def canonicalize(obj: Any) -> bytes:
     """
     if HAS_RFC8785:
         return rfc8785.dumps(obj)
+    warnings.warn(
+        "rfc8785 is not installed; using non-standard 'deterministic-json-fallback' "
+        "canonicalization. Artifacts sealed with this scheme cannot be verified by "
+        "systems using RFC 8785, and vice versa. Install rfc8785 for standard compliance.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
     return json.dumps(
         obj,
         sort_keys=True,

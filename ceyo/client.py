@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import uuid
+import warnings
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -45,6 +46,14 @@ class CeyoClient:
         store: ArtifactStore | None = None,
         log: Optional[TransparencyLog] = None,
     ):
+        if key_provider is None:
+            warnings.warn(
+                "No key_provider supplied; using an ephemeral InMemoryKeyProvider. "
+                "Artifacts sealed in this session cannot be re-verified after the "
+                "process exits. Pass a LocalKeyProvider for persistent signing keys.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         self.key_provider = key_provider or InMemoryKeyProvider()
         self.store = store
         self.log = log
@@ -68,9 +77,19 @@ class CeyoClient:
         """
         envelope = seal_body(body, self.key_provider, validate=validate)
         if persist and self.store is not None:
-            self.store.append(envelope)
+            try:
+                self.store.append(envelope)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Artifact was sealed but could not be persisted to the store: {exc}"
+                ) from exc
         if persist and self.log is not None:
-            self.log.append(envelope)
+            try:
+                self.log.append(envelope)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Artifact was sealed but could not be appended to the transparency log: {exc}"
+                ) from exc
         return envelope
 
     def verify(
