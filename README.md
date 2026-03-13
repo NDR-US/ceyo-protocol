@@ -2,7 +2,55 @@
 
 Cryptographic evidentiary infrastructure for AI systems.
 
-CEYO seals AI decision records as tamper-evident artifacts. Each artifact is canonicalized, SHA-256 hashed, and ECDSA-P256 signed. Any third party can verify integrity without access to the originating system.
+CEYO seals AI decision records as tamper-evident artifacts. Each artifact is
+canonicalized, SHA-256 hashed, and ECDSA-P256 signed. Any third party can
+verify integrity and trace membership in the transparency log without access
+to the originating system.
+
+---
+
+## Repository Layout
+
+```
+spec/               ← Protocol specification, schemas, pipeline
+ceyo/               ← Python reference implementation
+ceyo_verify/        ← Independent verifier (no SDK dependency)
+docs/               ← Developer integration guides
+examples/           ← Runnable SDK examples
+tests/              ← Unit, integration, negative, and CLI smoke tests
+```
+
+### Three Layers
+
+| Layer | Directory | Role |
+|-------|-----------|------|
+| **Protocol** | `spec/` | Defines the standard — schemas, algorithms, pipeline, security model |
+| **Reference impl** | `ceyo/` | Python SDK — seal, verify, store, transparency log, CLI |
+| **Independent verifier** | `ceyo_verify/` | Standalone — only `cryptography` + `rfc8785`, no SDK dependency |
+
+---
+
+## Pipeline
+
+```
+Input / Output
+      ↓
+Canonicalization          (RFC 8785 / deterministic JSON)
+      ↓
+Hash + Signature          (SHA-256 + ECDSA-P256)
+      ↓
+Artifact Envelope         (spec/artifact-schema.json)
+      ↓
+Transparency Log          (append-only Merkle tree)
+      ↓
+Signed Checkpoint         (spec/checkpoint.schema.json)
+      ↓
+Standalone Verification   (ceyo_verify/verifier.py)
+      ↓
+Inclusion Proof Validation (ceyo_verify/transparency.py)
+```
+
+See [`spec/pipeline.md`](spec/pipeline.md) for the full specification of each stage.
 
 ---
 
@@ -18,7 +66,8 @@ For development (ruff, mypy, coverage, pytest):
 pip install -e ".[dev]"
 ```
 
-This installs the `ceyo` package, the `ceyo` CLI, and the `ceyo_verify` standalone verifier.
+This installs the `ceyo` package, the `ceyo` CLI, and the `ceyo_verify`
+standalone verifier.
 
 ---
 
@@ -37,8 +86,6 @@ ceyo seal example_artifact/sample_record.json \
     --key keys/private.pem \
     -o sealed_artifact.json
 ```
-
-Output: `sealed_artifact.json` — a fully structured envelope containing the artifact body, canonicalization metadata, SHA-256 hash, and ECDSA-P256 signature.
 
 ### Verify an artifact
 
@@ -59,38 +106,47 @@ Verification PASSED
 
 ### Verify independently (no SDK required)
 
-The `ceyo_verify` package depends only on `cryptography` and `rfc8785`:
-
 ```bash
 python -m ceyo_verify sealed_artifact.json keys/public.pem
 ```
 
+### Transparency log
+
+```bash
+# Append artifacts to the log via the SDK, then:
+ceyo log checkpoint ceyo_log.db --key keys/private.pem --output checkpoint.json
+ceyo log prove      ceyo_log.db <artifact_id>          --output proof.json
+ceyo log verify-proof proof.json \
+    --checkpoint checkpoint.json \
+    --pubkey keys/public.pem
+```
+
 ---
 
-## SDK usage
+## SDK Usage
 
 ```python
-from ceyo import CeyoClient
+from ceyo import CeyoClient, TransparencyLog
 from ceyo.keys import LocalKeyProvider
 from ceyo.store import ArtifactStore
 
 client = CeyoClient(
     key_provider=LocalKeyProvider("keys/private.pem"),
     store=ArtifactStore("artifacts.db"),
+    log=TransparencyLog("ceyo_log.db"),
 )
 
-# Seal a body dict
+# Seal a body dict — automatically stored and logged
 envelope = client.seal({
     "event": {
-        "event_id": "evt_001",
-        "type": "classification",
-        "occurred_at": "2026-03-09T12:00:00Z",
+        "event_id":   "evt_001",
+        "type":       "classification",
+        "occurred_at":"2026-03-13T12:00:00Z",
     },
-    "policy": {"id": "POL-001", "version": "1.0"},
+    "policy":          {"id": "POL-001", "version": "1.0"},
     "disclosure_tier": "internal",
 })
 
-# Verify
 result = client.verify(envelope)
 assert result.ok
 
@@ -100,81 +156,77 @@ def predict(text):
     return model(text)
 ```
 
+```python
+# Standalone inclusion proof verification (no SDK)
+from ceyo_verify import verify_inclusion_proof
+import json
+
+proof      = json.load(open("proof.json"))
+checkpoint = json.load(open("checkpoint.json"))
+pubkey_pem = open("keys/public.pem", "rb").read()
+
+result = verify_inclusion_proof(proof, checkpoint, pubkey_pem)
+assert result.ok
+```
+
 See [`examples/basic_usage.py`](examples/basic_usage.py) for a complete runnable demo.
 
 ---
 
-## Verification steps
+## Verification Steps
 
 Both `ceyo verify` and `python -m ceyo_verify` perform:
 
-1. **Schema validation** — envelope structure, required fields, const values, `artifact_id` prefix pattern, ISO 8601 timestamp format
+1. **Schema validation** — required fields, const values, `artifact_id` prefix, ISO 8601 timestamps
 2. **Key load** — verify the PEM is a valid ECDSA `EllipticCurvePublicKey`
-3. **Canonicalization** — reproduce `canonical(body)` using the scheme declared in `artifact["canonicalization"]["scheme"]` (RFC 8785 or deterministic-JSON fallback)
-4. **Hash verification** — recompute SHA-256 and compare (timing-safe) to `integrity.hash.value_b64u`
+3. **Canonicalization** — reproduce `canonical(body)` using the declared scheme (RFC 8785 or fallback)
+4. **Hash verification** — recompute SHA-256, compare timing-safe to `integrity.hash.value_b64u`
 5. **Signature verification** — ECDSA-P256 DER signature over the SHA-256 digest
-6. **Key fingerprint** — SHA-256 of the public key SPKI DER compared to `key_reference.public_key_fingerprint.value_b64u`
-
-The standalone `ceyo_verify` package shares no code with the `ceyo` SDK. It reimplements only the primitives needed for verification (base64url, canonicalization, schema check) so that independent verifiers have no SDK dependency.
+6. **Key fingerprint** — SHA-256 of public key SPKI DER vs `key_reference.public_key_fingerprint`
 
 ---
 
-## Package structure
-
-```
-ceyo/               # SDK — seal, verify, store, client, keys, schema, crypto, CLI
-ceyo_verify/        # Standalone verifier — no ceyo dependency
-docs/               # Protocol specification and schema files
-examples/           # Runnable usage examples
-tests/              # Unit, integration, negative, and CLI smoke tests
-spec/               # Artifact JSON Schema (artifact-schema.json)
-```
-
-### Package boundary
-
-`ceyo_verify` intentionally does not import from `ceyo`. It reproduces the canonical verification logic (canonicalization, hash replay, ECDSA signature check) using only `cryptography` and `rfc8785`. This preserves the independent-verifier property of the protocol.
-
----
-
-## CLI reference
+## CLI Reference
 
 ```
 ceyo keygen  [--out-private PATH] [--out-public PATH] [--force]
 ceyo seal    <record.json> [--key PATH] [-o OUTPUT] [--no-validate]
 ceyo verify  <artifact.json> <public_key.pem>
+
 ceyo store list          <store.db> [-n LIMIT]
 ceyo store inspect       <store.db> <artifact_id>
 ceyo store verify-chain  <store.db>
+
+ceyo log list            <log.db> [-n LIMIT]
+ceyo log checkpoint      <log.db> [--key PATH] [-o OUTPUT]
+ceyo log prove           <log.db> <artifact_id> [-o OUTPUT]
+ceyo log verify-proof    <proof.json> [--checkpoint FILE] [--pubkey FILE]
 
 python -m ceyo_verify <artifact.json> <public_key.pem>
 ```
 
 ---
 
-## Artifact envelope
+## Artifact Envelope
 
-Every sealed artifact is a JSON object with this structure:
+Every sealed artifact is a JSON object:
 
 ```json
 {
-  "product": "CEYO",
+  "product":          "CEYO",
   "envelope_version": "1.0",
-  "artifact_schema": {"name": "ceyo.artifact", "version": "1.0"},
-  "artifact_id": "ceyo_art_<hex>",
-  "created_at": "2026-03-09T12:00:00Z",
-  "body": { ... },
-  "canonicalization": {
-    "scheme": "RFC8785",
-    "version": "1.0",
-    "scope": "body"
-  },
+  "artifact_schema":  {"name": "ceyo.artifact", "version": "1.0"},
+  "artifact_id":      "ceyo_art_<hex>",
+  "created_at":       "2026-03-13T12:00:00Z",
+  "body":             { ... },
+  "canonicalization": {"scheme": "RFC8785", "version": "1.0", "scope": "body"},
   "integrity": {
-    "hash": {"alg": "SHA-256", "value_b64u": "...", "covers": "canonical(body)"},
-    "sig":  {"alg": "ECDSA-P256-SHA256", "format": "DER", "value_b64u": "...", "covers": "canonical(body)"}
+    "hash": {"alg": "SHA-256",         "value_b64u": "...", "covers": "canonical(body)"},
+    "sig":  {"alg": "ECDSA-P256-SHA256","format": "DER", "value_b64u": "...", "covers": "canonical(body)"}
   },
   "key_reference": {
     "registry": "local",
-    "key_id": "local:public_key.pem",
+    "key_id":   "local:public_key.pem",
     "public_key_fingerprint": {"alg": "SHA-256", "value_b64u": "...", "covers": "public_key_spki_der"}
   }
 }
@@ -184,31 +236,35 @@ Full schema: [`spec/artifact-schema.json`](spec/artifact-schema.json)
 
 ---
 
-## Artifact store
+## Specification
 
-`ArtifactStore` is an append-only SQLite log with hash chaining. Each row records:
+The `spec/` directory is the authoritative source for the protocol:
 
-- the sealed envelope (JSON)
-- `entry_hash` — SHA-256 of the canonical envelope bytes
-- `chain_hash` — SHA-256 of `prev_chain_hash:entry_hash`
-
-Tampering with any stored envelope breaks the chain and is detected by `ceyo store verify-chain`.
+| Document | Description |
+|----------|-------------|
+| [`spec/pipeline.md`](spec/pipeline.md) | End-to-end pipeline specification |
+| [`spec/protocol-specification.md`](spec/protocol-specification.md) | Formal protocol specification |
+| [`spec/transparency-log.md`](spec/transparency-log.md) | Transparency log, Merkle tree, checkpoints, inclusion proofs |
+| [`spec/security-model.md`](spec/security-model.md) | Security guarantees and assumptions |
+| [`spec/threat-model.md`](spec/threat-model.md) | Threat categories and mitigations |
+| [`spec/artifact-schema.json`](spec/artifact-schema.json) | JSON Schema for sealed envelopes |
+| [`spec/checkpoint.schema.json`](spec/checkpoint.schema.json) | JSON Schema for signed checkpoints |
+| [`spec/inclusion-proof.schema.json`](spec/inclusion-proof.schema.json) | JSON Schema for inclusion proofs |
 
 ---
 
-## Runtime-generated files
+## Runtime-Generated Files
 
-The following files are generated at runtime and gitignored:
+Gitignored at runtime:
 
 | Pattern | Description |
 |---------|-------------|
-| `*.pem` | Key pair files generated by `ceyo keygen` or `LocalKeyProvider` |
-| `*.db`, `*.db-shm`, `*.db-wal` | SQLite artifact store and WAL files |
-| `example_artifact/sealed_artifact.json` | Sealed output from demo/CI |
+| `*.pem` | Key pairs from `ceyo keygen` or `LocalKeyProvider` |
+| `*.db`, `*.db-shm`, `*.db-wal` | SQLite artifact store and transparency log files |
 
 ---
 
-## Non-goals
+## Non-Goals
 
 CEYO does not:
 
@@ -218,7 +274,9 @@ CEYO does not:
 - enforce governance policies
 - modify or instrument model behavior
 
-CEYO provides tamper-evident records that allow independent cryptographic verification of captured AI decision data.
+CEYO provides tamper-evident records that allow independent cryptographic
+verification of captured AI decision data, anchored in a Merkle transparency
+log with signed checkpoints and verifiable inclusion proofs.
 
 ---
 
@@ -226,4 +284,6 @@ CEYO provides tamper-evident records that allow independent cryptographic verifi
 
 Copyright (c) 2026 Brian Covarrubias. All rights reserved.
 
-This repository is provided for informational and evaluation purposes. No license to use, copy, modify, or distribute is granted without explicit written permission from the author.
+This repository is provided for informational and evaluation purposes. No
+license to use, copy, modify, or distribute is granted without explicit
+written permission from the author.
