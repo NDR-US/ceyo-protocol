@@ -14,6 +14,25 @@ from ceyo.store import ArtifactStore
 from ceyo.verify import verify_artifact
 
 
+def cmd_keygen(args: argparse.Namespace) -> None:
+    """Generate a new ECDSA P-256 key pair and write to PEM files."""
+    priv_path = Path(args.out_private)
+    pub_path = Path(args.out_public) if args.out_public else priv_path.with_suffix(".pub.pem")
+
+    if priv_path.exists() and not args.force:
+        print(f"Error: private key already exists: {priv_path}  (use --force to overwrite)", file=sys.stderr)
+        sys.exit(1)
+
+    # LocalKeyProvider auto-generates and persists; re-use that logic.
+    kp = LocalKeyProvider(priv_path, pub_path)
+    # Force generation by calling the method that loads/creates
+    kp.get_private_key()
+
+    print(f"Private key: {priv_path}")
+    print(f"Public key:  {pub_path}")
+    print(f"Fingerprint: {kp.fingerprint()}")
+
+
 def cmd_seal(args: argparse.Namespace) -> None:
     """Seal a JSON record file."""
     try:
@@ -37,7 +56,8 @@ def cmd_seal(args: argparse.Namespace) -> None:
         json.dumps(envelope, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
-    print(f"Sealed: {output}")
+    print(f"Sealed:     {output}")
+    print(f"Artifact:   {envelope['artifact_id']}")
     print(f"Public key: {key_provider.public_key_path}")
 
 
@@ -80,6 +100,16 @@ def cmd_store_list(args: argparse.Namespace) -> None:
             print(f"  {art['artifact_id']}  {art['created_at']}")
 
 
+def cmd_store_inspect(args: argparse.Namespace) -> None:
+    """Inspect a single artifact from a store database."""
+    with ArtifactStore(args.db) as store:
+        artifact = store.get(args.artifact_id)
+        if artifact is None:
+            print(f"Error: artifact not found: {args.artifact_id}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(artifact, indent=2, ensure_ascii=False))
+
+
 def cmd_store_verify_chain(args: argparse.Namespace) -> None:
     """Verify the hash chain integrity of a store database."""
     with ArtifactStore(args.db) as store:
@@ -92,6 +122,16 @@ def cmd_store_verify_chain(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ceyo", description="CEYO Protocol CLI")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    # ceyo keygen
+    p_keygen = sub.add_parser("keygen", help="Generate a new ECDSA P-256 key pair")
+    p_keygen.add_argument(
+        "--out-private", default="ceyo_private.pem",
+        help="Private key output path (default: ceyo_private.pem)",
+    )
+    p_keygen.add_argument("--out-public", help="Public key output path (default: <out-private>.pub.pem)")
+    p_keygen.add_argument("--force", action="store_true", help="Overwrite existing key files")
+    p_keygen.set_defaults(func=cmd_keygen)
 
     # ceyo seal
     p_seal = sub.add_parser("seal", help="Seal a JSON record")
@@ -115,6 +155,11 @@ def main() -> None:
     p_list.add_argument("db", help="Path to SQLite database")
     p_list.add_argument("--limit", "-n", type=int, default=10, help="Number of entries (default: 10)")
     p_list.set_defaults(func=cmd_store_list)
+
+    p_inspect = store_sub.add_parser("inspect", help="Print a single artifact from the store")
+    p_inspect.add_argument("db", help="Path to SQLite database")
+    p_inspect.add_argument("artifact_id", help="Artifact ID to inspect")
+    p_inspect.set_defaults(func=cmd_store_inspect)
 
     p_chain = store_sub.add_parser("verify-chain", help="Verify store chain integrity")
     p_chain.add_argument("db", help="Path to SQLite database")

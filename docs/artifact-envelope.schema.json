@@ -42,7 +42,8 @@
     },
     "created_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
     },
     "body": {
       "type": "object"
@@ -87,7 +88,8 @@
               "const": "SHA-256"
             },
             "value_b64u": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]+$"
             },
             "covers": {
               "type": "string"
@@ -112,7 +114,8 @@
               "const": "DER"
             },
             "value_b64u": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]+$"
             },
             "covers": {
               "type": "string"
@@ -148,7 +151,8 @@
               "const": "SHA-256"
             },
             "value_b64u": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]+$"
             },
             "covers": {
               "type": "string"

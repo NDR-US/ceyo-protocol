@@ -22,10 +22,14 @@ dev = [
     "ruff",
     "mypy",
     "coverage",
+    "pytest",
 ]
 
 [project.scripts]
 ceyo = "ceyo.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ceyo", "ceyo_verify"]
 
 [project.urls]
 Homepage = "https://ndr-us.github.io/ceyo-site/"
@@ -45,4 +49,10 @@ warn_unused_configs = true
 ignore_missing_imports = true
 
 [tool.coverage.run]
-source = ["ceyo"]
+source = ["ceyo", "ceyo_verify"]
+omit = ["ceyo/__main__.py", "ceyo_verify/__main__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "if __name__ == .__main__.:",
+]

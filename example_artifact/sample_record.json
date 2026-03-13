@@ -13,12 +13,12 @@
   "capture": {
     "input_ref_hash": {
       "alg": "SHA-256",
-      "value_b64u": "placeholder_input_hash",
+      "value_b64u": "53eYAGinmIn_lr4WtaV1YL7I6qMwY4A5byRue8CYaFU",
       "covers": "policy_scoped_input_representation"
     },
     "output_ref_hash": {
       "alg": "SHA-256",
-      "value_b64u": "placeholder_output_hash",
+      "value_b64u": "B4jVXh63xz7UqKNnnZhZaBfAoy0A8DFGpQlIJ4k2x3E",
       "covers": "policy_scoped_output_representation"
     }
   },

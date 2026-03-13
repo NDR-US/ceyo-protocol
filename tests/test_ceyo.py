@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from unittest import TestCase, main
@@ -19,6 +21,7 @@ from ceyo.schema import ValidationError, validate_body, validate_envelope, valid
 from ceyo.seal import seal, seal_body
 from ceyo.store import ArtifactStore
 from ceyo.verify import verify_artifact
+from ceyo_verify import verify_artifact as standalone_verify
 
 # ---------------------------------------------------------------------------
 # Crypto primitives
@@ -365,6 +368,677 @@ class TestClient(TestCase):
         body = {"event": {"event_id": "evt_001", "type": "test", "occurred_at": "2026-01-01T00:00:00Z"}}
         envelope = client.seal(body, persist=False)
         self.assertTrue(client.verify(envelope).ok)
+
+
+# ---------------------------------------------------------------------------
+# Negative cases — malformed input, tamper, wrong key, bad signature
+# ---------------------------------------------------------------------------
+
+class TestNegativeCases(TestCase):
+    """Explicit negative tests covering all documented failure modes."""
+
+    def setUp(self):
+        self.kp = InMemoryKeyProvider()
+        self.body = {
+            "event": {
+                "event_id": "evt_neg_001",
+                "type": "classification",
+                "occurred_at": "2026-01-01T00:00:00Z",
+            },
+        }
+
+    def _sealed(self):
+        return seal_body(self.body, self.kp)
+
+    # --- Schema failures ---
+
+    def test_malformed_schema_wrong_product(self):
+        env = self._sealed()
+        env["product"] = "NOT_CEYO"
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("Schema" in m for m in result.failed))
+
+    def test_malformed_schema_missing_body(self):
+        env = self._sealed()
+        del env["body"]
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_malformed_schema_bad_artifact_id(self):
+        env = self._sealed()
+        env["artifact_id"] = "not_a_ceyo_id"
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_malformed_schema_bad_datetime(self):
+        env = self._sealed()
+        env["created_at"] = "not-a-date"
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_malformed_schema_wrong_hash_alg(self):
+        env = self._sealed()
+        env["integrity"]["hash"]["alg"] = "MD5"
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_malformed_schema_wrong_sig_alg(self):
+        env = self._sealed()
+        env["integrity"]["sig"]["alg"] = "RSA-SHA256"
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_malformed_schema_extra_top_level_field(self):
+        env = self._sealed()
+        env["extra_key"] = "injected"
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_malformed_body_missing_event(self):
+        errors = validate_body({"disclosure_tier": "public"})
+        self.assertTrue(any("event" in e for e in errors))
+
+    def test_malformed_body_missing_event_type(self):
+        body = {"event": {"event_id": "e", "occurred_at": "2026-01-01T00:00:00Z"}}
+        errors = validate_body(body)
+        self.assertTrue(any("type" in e for e in errors))
+
+    def test_malformed_body_bad_occurred_at(self):
+        body = {"event": {"event_id": "e", "type": "t", "occurred_at": "yesterday"}}
+        errors = validate_body(body)
+        self.assertTrue(len(errors) > 0)
+
+    # --- Crypto failures ---
+
+    def test_tampered_body_detected(self):
+        env = self._sealed()
+        env["body"]["event"]["type"] = "tampered"
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("Hash" in m or "mismatch" in m for m in result.failed))
+
+    def test_tampered_hash_value_detected(self):
+        env = self._sealed()
+        # Replace the stored hash with a different value
+        env["integrity"]["hash"]["value_b64u"] = b64u(b"\x00" * 32)
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_bad_signature_bytes_detected(self):
+        env = self._sealed()
+        env["integrity"]["sig"]["value_b64u"] = b64u(b"\xde\xad\xbe\xef" * 16)
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("Signature" in m for m in result.failed))
+
+    def test_wrong_key_fails(self):
+        env = self._sealed()
+        wrong_kp = InMemoryKeyProvider()
+        result = verify_artifact(env, wrong_kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_fingerprint_mismatch_fails(self):
+        env = self._sealed()
+        wrong_kp = InMemoryKeyProvider()
+        # Use the correct key to pass hash/sig, but inject wrong fingerprint
+        env["key_reference"]["public_key_fingerprint"]["value_b64u"] = wrong_kp.fingerprint()
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("fingerprint" in m.lower() for m in result.failed))
+
+    def test_no_fingerprint_check_skips_that_step(self):
+        env = self._sealed()
+        # Inject garbage fingerprint but disable the check
+        env["key_reference"]["public_key_fingerprint"]["value_b64u"] = b64u(b"\x00" * 32)
+        result = verify_artifact(env, self.kp.get_public_key_pem(), check_fingerprint=False)
+        self.assertTrue(result.ok)
+
+
+# ---------------------------------------------------------------------------
+# Round-trip tests — seal → persist → retrieve → verify
+# ---------------------------------------------------------------------------
+
+class TestRoundTrip(TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmpdir)
+        self.db_path = os.path.join(self.tmpdir, "rt.db")
+        self.kp = InMemoryKeyProvider()
+
+    def test_seal_persist_verify(self):
+        """Full round-trip: seal → store.append → store.get → verify_artifact."""
+        body = {
+            "event": {
+                "event_id": "evt_rt_001",
+                "type": "roundtrip",
+                "occurred_at": "2026-03-01T00:00:00Z",
+            },
+        }
+        envelope = seal_body(body, self.kp)
+
+        with ArtifactStore(self.db_path) as store:
+            seq = store.append(envelope)
+            retrieved = store.get_by_seq(seq)
+
+        self.assertIsNotNone(retrieved)
+        result = verify_artifact(retrieved, self.kp.get_public_key_pem())
+        self.assertTrue(result.ok)
+
+    def test_multiple_seals_chain_intact(self):
+        """Seal N artifacts, persist all, verify chain is intact."""
+        with ArtifactStore(self.db_path) as store:
+            for i in range(20):
+                body = {
+                    "event": {
+                        "event_id": f"evt_chain_{i:04d}",
+                        "type": "chain_test",
+                        "occurred_at": "2026-03-01T00:00:00Z",
+                    },
+                }
+                store.append(seal_body(body, self.kp))
+            ok, checked = store.verify_chain()
+
+        self.assertTrue(ok)
+        self.assertEqual(checked, 20)
+
+    def test_roundtrip_convenience_seal(self):
+        """seal() convenience → store → verify."""
+        envelope = seal(
+            event_id="evt_rt_conv_001",
+            event_type="inference",
+            occurred_at="2026-03-01T12:00:00Z",
+            policy_id="POL-RT-001",
+            key_provider=self.kp,
+        )
+        with ArtifactStore(self.db_path) as store:
+            store.append(envelope)
+            retrieved = store.get(envelope["artifact_id"])
+
+        result = verify_artifact(retrieved, self.kp.get_public_key_pem())
+        self.assertTrue(result.ok)
+
+    def test_standalone_verifier_matches_sdk(self):
+        """ceyo_verify standalone verifier produces same result as ceyo.verify."""
+        body = {
+            "event": {
+                "event_id": "evt_standalone_001",
+                "type": "cross_check",
+                "occurred_at": "2026-03-01T00:00:00Z",
+            },
+        }
+        envelope = seal_body(body, self.kp)
+        pub_pem = self.kp.get_public_key_pem()
+
+        sdk_result = verify_artifact(envelope, pub_pem)
+        standalone_result = standalone_verify(envelope, pub_pem)
+
+        self.assertEqual(sdk_result.ok, standalone_result.ok)
+        self.assertEqual(sdk_result.passed, standalone_result.passed)
+
+    def test_standalone_verifier_catches_tamper(self):
+        """Standalone verifier detects body tampering independently."""
+        body = {
+            "event": {
+                "event_id": "evt_standalone_tamper",
+                "type": "test",
+                "occurred_at": "2026-03-01T00:00:00Z",
+            },
+        }
+        envelope = seal_body(body, self.kp)
+        envelope["body"]["event"]["type"] = "tampered"
+        result = standalone_verify(envelope, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+
+# ---------------------------------------------------------------------------
+# CLI smoke tests
+# ---------------------------------------------------------------------------
+
+class TestCLI(TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmpdir)
+        self.priv = os.path.join(self.tmpdir, "test_priv.pem")
+        self.pub  = os.path.join(self.tmpdir, "test_pub.pem")
+
+    def _run(self, *args, check=True):
+        return subprocess.run(
+            [sys.executable, "-m", "ceyo"] + list(args),
+            capture_output=True, text=True,
+            check=check,
+        )
+
+    def test_keygen(self):
+        r = self._run("keygen", "--out-private", self.priv, "--out-public", self.pub)
+        self.assertEqual(r.returncode, 0)
+        self.assertTrue(Path(self.priv).exists())
+        self.assertTrue(Path(self.pub).exists())
+        self.assertIn("Fingerprint:", r.stdout)
+
+    def test_keygen_refuses_overwrite_without_force(self):
+        self._run("keygen", "--out-private", self.priv, "--out-public", self.pub)
+        r = subprocess.run(
+            [sys.executable, "-m", "ceyo", "keygen", "--out-private", self.priv, "--out-public", self.pub],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_keygen_force_overwrites(self):
+        self._run("keygen", "--out-private", self.priv, "--out-public", self.pub)
+        r = self._run("keygen", "--out-private", self.priv, "--out-public", self.pub, "--force")
+        self.assertEqual(r.returncode, 0)
+
+    def test_seal_and_verify(self):
+        # Generate keys
+        self._run("keygen", "--out-private", self.priv, "--out-public", self.pub)
+
+        # Write a minimal valid record
+        record_path = os.path.join(self.tmpdir, "record.json")
+        Path(record_path).write_text(json.dumps({
+            "event": {
+                "event_id": "evt_cli_001",
+                "type": "cli_test",
+                "occurred_at": "2026-03-01T00:00:00Z",
+            },
+        }), encoding="utf-8")
+
+        # Seal
+        sealed_path = os.path.join(self.tmpdir, "record.sealed.json")
+        r = self._run("seal", record_path, "--key", self.priv, "-o", sealed_path)
+        self.assertEqual(r.returncode, 0)
+        self.assertTrue(Path(sealed_path).exists())
+        self.assertIn("Sealed:", r.stdout)
+
+        # Verify
+        r = self._run("verify", sealed_path, self.pub)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("Verification PASSED", r.stdout)
+
+    def test_verify_fails_on_tampered_artifact(self):
+        self._run("keygen", "--out-private", self.priv, "--out-public", self.pub)
+
+        record_path = os.path.join(self.tmpdir, "record.json")
+        Path(record_path).write_text(json.dumps({
+            "event": {
+                "event_id": "evt_cli_tamper",
+                "type": "original",
+                "occurred_at": "2026-03-01T00:00:00Z",
+            },
+        }), encoding="utf-8")
+
+        sealed_path = os.path.join(self.tmpdir, "tampered.sealed.json")
+        self._run("seal", record_path, "--key", self.priv, "-o", sealed_path)
+
+        # Tamper with the artifact
+        art = json.loads(Path(sealed_path).read_text())
+        art["body"]["event"]["type"] = "tampered"
+        Path(sealed_path).write_text(json.dumps(art))
+
+        r = subprocess.run(
+            [sys.executable, "-m", "ceyo", "verify", sealed_path, self.pub],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Verification FAILED", r.stdout)
+
+    def test_standalone_verify_cli(self):
+        """python -m ceyo_verify should pass on a valid artifact."""
+        self._run("keygen", "--out-private", self.priv, "--out-public", self.pub)
+
+        record_path = os.path.join(self.tmpdir, "record.json")
+        Path(record_path).write_text(json.dumps({
+            "event": {
+                "event_id": "evt_standalone_cli",
+                "type": "standalone",
+                "occurred_at": "2026-03-01T00:00:00Z",
+            },
+        }), encoding="utf-8")
+
+        sealed_path = os.path.join(self.tmpdir, "standalone.sealed.json")
+        self._run("seal", record_path, "--key", self.priv, "-o", sealed_path)
+
+        r = subprocess.run(
+            [sys.executable, "-m", "ceyo_verify", sealed_path, self.pub],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("Verification PASSED", r.stdout)
+
+    def test_store_list_and_inspect(self):
+        """CLI store list and inspect commands work after sealing."""
+        self._run("keygen", "--out-private", self.priv, "--out-public", self.pub)
+
+        record_path = os.path.join(self.tmpdir, "record.json")
+        body = {
+            "event": {
+                "event_id": "evt_cli_store",
+                "type": "store_test",
+                "occurred_at": "2026-03-01T00:00:00Z",
+            },
+        }
+        Path(record_path).write_text(json.dumps(body), encoding="utf-8")
+
+        # Seal and manually persist so we can inspect
+        from ceyo.keys import LocalKeyProvider as LKP
+        from ceyo.seal import seal_body as sb
+        kp = LKP(self.priv, self.pub)
+        env = sb(body, kp)
+        db_path = os.path.join(self.tmpdir, "test.db")
+        with ArtifactStore(db_path) as store:
+            store.append(env)
+
+        r = self._run("store", "list", db_path)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn(env["artifact_id"], r.stdout)
+
+        r = self._run("store", "inspect", db_path, env["artifact_id"])
+        self.assertEqual(r.returncode, 0)
+        artifact_id_in_output = env["artifact_id"] in r.stdout
+        self.assertTrue(artifact_id_in_output)
+
+        r = self._run("store", "verify-chain", db_path)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("INTACT", r.stdout)
+
+
+# ---------------------------------------------------------------------------
+# Direct CLI unit tests (no subprocess — covers ceyo/cli.py)
+# ---------------------------------------------------------------------------
+
+class TestCLIDirect(TestCase):
+    """Call CLI command functions directly for coverage without subprocess overhead."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmpdir)
+        self.priv = os.path.join(self.tmpdir, "priv.pem")
+        self.pub  = os.path.join(self.tmpdir, "pub.pem")
+
+    def _ns(self, **kwargs):
+        """Build a fake argparse.Namespace."""
+        import argparse
+        return argparse.Namespace(**kwargs)
+
+    def test_cmd_keygen_creates_files(self):
+        from ceyo.cli import cmd_keygen
+        ns = self._ns(out_private=self.priv, out_public=self.pub, force=False)
+        cmd_keygen(ns)
+        self.assertTrue(Path(self.priv).exists())
+        self.assertTrue(Path(self.pub).exists())
+
+    def test_cmd_keygen_refuses_existing(self):
+        from ceyo.cli import cmd_keygen
+        ns = self._ns(out_private=self.priv, out_public=self.pub, force=False)
+        cmd_keygen(ns)
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_keygen(ns)
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_cmd_keygen_force_overwrites(self):
+        from ceyo.cli import cmd_keygen
+        ns = self._ns(out_private=self.priv, out_public=self.pub, force=False)
+        cmd_keygen(ns)
+        ns2 = self._ns(out_private=self.priv, out_public=self.pub, force=True)
+        cmd_keygen(ns2)  # should not raise
+        self.assertTrue(Path(self.priv).exists())
+
+    def test_cmd_seal(self, tmp_path=None):
+        from ceyo.cli import cmd_keygen, cmd_seal
+        ns = self._ns(out_private=self.priv, out_public=self.pub, force=False)
+        cmd_keygen(ns)
+
+        record = os.path.join(self.tmpdir, "rec.json")
+        sealed = os.path.join(self.tmpdir, "rec.sealed.json")
+        Path(record).write_text(json.dumps({
+            "event": {"event_id": "e", "type": "t", "occurred_at": "2026-01-01T00:00:00Z"},
+        }), encoding="utf-8")
+
+        ns2 = self._ns(record=record, key=self.priv, output=sealed, no_validate=False)
+        cmd_seal(ns2)
+        self.assertTrue(Path(sealed).exists())
+
+    def test_cmd_seal_missing_record(self):
+        from ceyo.cli import cmd_seal
+        ns = self._ns(record="/nonexistent.json", key=self.priv, output=None, no_validate=False)
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_seal(ns)
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_cmd_seal_invalid_json(self):
+        from ceyo.cli import cmd_seal
+        bad = os.path.join(self.tmpdir, "bad.json")
+        Path(bad).write_text("not json", encoding="utf-8")
+        ns = self._ns(record=bad, key=self.priv, output=None, no_validate=False)
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_seal(ns)
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_cmd_verify_passes(self):
+        from ceyo.cli import cmd_keygen, cmd_seal, cmd_verify
+        ns = self._ns(out_private=self.priv, out_public=self.pub, force=False)
+        cmd_keygen(ns)
+
+        record = os.path.join(self.tmpdir, "rec.json")
+        sealed = os.path.join(self.tmpdir, "rec.sealed.json")
+        Path(record).write_text(json.dumps({
+            "event": {"event_id": "e", "type": "t", "occurred_at": "2026-01-01T00:00:00Z"},
+        }), encoding="utf-8")
+        cmd_seal(self._ns(record=record, key=self.priv, output=sealed, no_validate=False))
+
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_verify(self._ns(artifact=sealed, pubkey=self.pub))
+        self.assertEqual(ctx.exception.code, 0)
+
+    def test_cmd_verify_missing_artifact(self):
+        from ceyo.cli import cmd_verify
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_verify(self._ns(artifact="/no.json", pubkey=self.pub))
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_cmd_verify_missing_pubkey(self):
+        from ceyo.cli import cmd_keygen, cmd_seal, cmd_verify
+        ns = self._ns(out_private=self.priv, out_public=self.pub, force=False)
+        cmd_keygen(ns)
+        record = os.path.join(self.tmpdir, "r.json")
+        sealed = os.path.join(self.tmpdir, "r.sealed.json")
+        Path(record).write_text(json.dumps({
+            "event": {"event_id": "e", "type": "t", "occurred_at": "2026-01-01T00:00:00Z"},
+        }), encoding="utf-8")
+        cmd_seal(self._ns(record=record, key=self.priv, output=sealed, no_validate=False))
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_verify(self._ns(artifact=sealed, pubkey="/no_key.pem"))
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_cmd_store_list_empty(self):
+        from ceyo.cli import cmd_store_list
+        db = os.path.join(self.tmpdir, "empty.db")
+        with ArtifactStore(db):
+            pass
+        cmd_store_list(self._ns(db=db, limit=10))
+
+    def test_cmd_store_inspect_found(self):
+        from ceyo.cli import cmd_store_inspect
+        kp = InMemoryKeyProvider()
+        body = {"event": {"event_id": "e", "type": "t", "occurred_at": "2026-01-01T00:00:00Z"}}
+        env = seal_body(body, kp)
+        db = os.path.join(self.tmpdir, "insp.db")
+        with ArtifactStore(db) as store:
+            store.append(env)
+        cmd_store_inspect(self._ns(db=db, artifact_id=env["artifact_id"]))
+
+    def test_cmd_store_inspect_not_found(self):
+        from ceyo.cli import cmd_store_inspect
+        db = os.path.join(self.tmpdir, "empty.db")
+        with ArtifactStore(db):
+            pass
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_store_inspect(self._ns(db=db, artifact_id="ceyo_art_notfound"))
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_cmd_store_verify_chain(self):
+        from ceyo.cli import cmd_store_verify_chain
+        kp = InMemoryKeyProvider()
+        db = os.path.join(self.tmpdir, "chain.db")
+        with ArtifactStore(db) as store:
+            for i in range(3):
+                body = {"event": {"event_id": f"e{i}", "type": "t", "occurred_at": "2026-01-01T00:00:00Z"}}
+                store.append(seal_body(body, kp))
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_store_verify_chain(self._ns(db=db))
+        self.assertEqual(ctx.exception.code, 0)
+
+
+# ---------------------------------------------------------------------------
+# Direct ceyo_verify unit tests (covers ceyo_verify/verifier.py)
+# ---------------------------------------------------------------------------
+
+class TestStandaloneVerifier(TestCase):
+    """Unit tests for ceyo_verify.verifier directly."""
+
+    def setUp(self):
+        self.kp = InMemoryKeyProvider()
+        self.body = {
+            "event": {
+                "event_id": "evt_sv_001",
+                "type": "test",
+                "occurred_at": "2026-01-01T00:00:00Z",
+            },
+        }
+
+    def _env(self):
+        return seal_body(self.body, self.kp)
+
+    def test_valid_artifact_passes(self):
+        result = standalone_verify(self._env(), self.kp.get_public_key_pem())
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.failed), 0)
+
+    def test_bool_true_on_ok(self):
+        result = standalone_verify(self._env(), self.kp.get_public_key_pem())
+        self.assertTrue(bool(result))
+
+    def test_bool_false_on_fail(self):
+        env = self._env()
+        env["body"]["event"]["type"] = "tampered"
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(bool(result))
+
+    def test_repr_includes_status(self):
+        result = standalone_verify(self._env(), self.kp.get_public_key_pem())
+        self.assertIn("PASSED", repr(result))
+
+    def test_missing_required_field(self):
+        env = self._env()
+        del env["integrity"]
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_wrong_product(self):
+        env = self._env()
+        env["product"] = "OTHER"
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_bad_artifact_id_prefix(self):
+        env = self._env()
+        env["artifact_id"] = "wrong_prefix_id"
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_bad_hash_alg(self):
+        env = self._env()
+        env["integrity"]["hash"]["alg"] = "MD5"
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_bad_sig_alg(self):
+        env = self._env()
+        env["integrity"]["sig"]["alg"] = "RSA"
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_bad_sig_format(self):
+        env = self._env()
+        env["integrity"]["sig"]["format"] = "RAW"
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_bad_canon_scope(self):
+        env = self._env()
+        env["canonicalization"]["scope"] = "full"
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_tampered_body_fails(self):
+        env = self._env()
+        env["body"]["event"]["type"] = "tampered"
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("Hash" in m or "mismatch" in m for m in result.failed))
+
+    def test_bad_signature_fails(self):
+        env = self._env()
+        env["integrity"]["sig"]["value_b64u"] = b64u(b"\x00" * 64)
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_wrong_key_fails(self):
+        env = self._env()
+        wrong_kp = InMemoryKeyProvider()
+        result = standalone_verify(env, wrong_kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_fingerprint_mismatch(self):
+        env = self._env()
+        wrong_kp = InMemoryKeyProvider()
+        env["key_reference"]["public_key_fingerprint"]["value_b64u"] = wrong_kp.fingerprint()
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+
+    def test_skip_fingerprint_check(self):
+        env = self._env()
+        env["key_reference"]["public_key_fingerprint"]["value_b64u"] = b64u(b"\x00" * 32)
+        result = standalone_verify(env, self.kp.get_public_key_pem(), check_fingerprint=False)
+        self.assertTrue(result.ok)
+
+    def test_skip_schema_check(self):
+        env = self._env()
+        result = standalone_verify(env, self.kp.get_public_key_pem(), check_schema=False)
+        self.assertTrue(result.ok)
+
+    def test_non_dict_root_fails(self):
+        from ceyo_verify.verifier import _check_envelope
+        errors = _check_envelope([])  # type: ignore[arg-type]
+        self.assertTrue(len(errors) > 0)
+
+    def test_bad_pem_fails(self):
+        env = self._env()
+        result = standalone_verify(env, b"not-a-pem")
+        self.assertFalse(result.ok)
+        self.assertTrue(any("Key load" in m for m in result.failed))
+
+    def test_deterministic_json_fallback(self):
+        """Verifier handles deterministic-json-fallback scheme."""
+        from cryptography.hazmat.primitives import hashes as _hashes
+        from cryptography.hazmat.primitives.asymmetric import ec as _ec
+        from cryptography.hazmat.primitives.asymmetric import utils as _utils
+
+        from ceyo_verify.verifier import _canonicalize
+
+        env = self._env()
+        env["canonicalization"]["scheme"] = "deterministic-json-fallback"
+        # Recompute hash and sig for the fallback scheme
+        canon = _canonicalize(env["body"], "deterministic-json-fallback")
+        digest = hashlib.sha256(canon).digest()
+        env["integrity"]["hash"]["value_b64u"] = b64u(digest)
+        sig = self.kp.get_private_key().sign(
+            digest,
+            _ec.ECDSA(_utils.Prehashed(_hashes.SHA256())),
+        )
+        env["integrity"]["sig"]["value_b64u"] = b64u(sig)
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertTrue(result.ok)
 
 
 if __name__ == "__main__":
