@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
 """
-CEYO Protocol — Artifact verifier
+CEYO Protocol — standalone artifact verifier (tools wrapper)
 
-Reads a sealed artifact envelope and verifies:
-  1. Schema validation
-  2. Canonicalize the body using the declared scheme
-  3. Recompute SHA-256 hash and compare to integrity.hash.value_b64u
-  4. Validate ECDSA-P256 signature against the public key
+Verifies a sealed artifact envelope using the ceyo_verify package,
+which has no dependency on the ceyo SDK. Only requires:
+    pip install cryptography rfc8785
 
 Usage:
-    python3 tools/ceyo_verify.py example_artifact/sealed_artifact.json example_artifact/public_key.pem
+    python3 tools/ceyo_verify.py <sealed_artifact.json> <public_key.pem>
+
+Or use the package directly (equivalent):
+    python -m ceyo_verify <sealed_artifact.json> <public_key.pem>
 """
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
-# Allow running from repo root
+# Allow running from repo root without installing
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ceyo.verify import verify_artifact
+from ceyo_verify import verify_artifact  # noqa: E402
+from ceyo_verify.verifier import load_artifact, load_pubkey  # noqa: E402
 
 
 def verify(artifact_path: str, pubkey_path: str) -> bool:
     """Verify a sealed CEYO artifact. Returns True on success, False on failure."""
-    artifact = json.loads(Path(artifact_path).read_text(encoding="utf-8"))
-    pub_pem = Path(pubkey_path).read_bytes()
+    artifact = load_artifact(artifact_path)
+    pub_pem = load_pubkey(pubkey_path)
 
     result = verify_artifact(artifact, pub_pem)
 
@@ -37,11 +38,8 @@ def verify(artifact_path: str, pubkey_path: str) -> bool:
     for msg in result.failed:
         print(f"FAIL: {msg}")
 
-    if result.ok:
-        print("\nVerification PASSED")
-    else:
-        print("\nVerification FAILED")
-
+    status = "PASSED" if result.ok else "FAILED"
+    print(f"\nVerification {status}")
     return result.ok
 
 
