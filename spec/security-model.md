@@ -161,6 +161,33 @@ Capture policies should be reviewed to ensure appropriate event coverage.
 
 Monitoring systems may detect anomalies in artifact generation rates.
 
+Private signing keys should never be stored in plaintext within application code or configuration files.
+
+⸻
+
+Key Revocation
+
+If a signing key is compromised, it must be revoked immediately.
+
+Verification systems should consult revocation records before accepting artifact signatures.
+
+Artifacts signed with revoked keys may require additional review or re-evaluation depending on organizational policy.
+
+The key_reference field in each artifact identifies the signing key, enabling revocation tracking across the artifact store.
+
+⸻
+
+Trust Distribution
+
+Public verification keys should be distributed through trusted channels.
+
+Possible approaches include:
+	•	secure key registries
+	•	certificate authorities
+	•	operator-managed verification directories
+
+Verification systems must ensure the authenticity of public keys before using them for artifact validation.
+
 ⸻
 
 Summary

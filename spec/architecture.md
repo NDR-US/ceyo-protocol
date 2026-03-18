@@ -168,6 +168,19 @@ Artifact validation must be possible without direct access to the AI system.
 
 ---
 
+## Artifact Invariants
+
+The following properties hold throughout the artifact lifecycle:
+
+1. **Integrity** — Any modification to the artifact body after sealing causes hash mismatch and verification failure
+2. **Authenticity** — The signature binds the artifact to a specific signing key
+3. **Determinism** — Canonicalization ensures reproducible hash computation across implementations
+4. **Independence** — Verification requires no access to the generating AI system
+5. **Non-interference** — Artifact generation does not affect AI system behavior or outputs
+6. **Policy scope** — Only policy-permitted data appears in the artifact body
+
+---
+
 ## Architectural Non-Goals
 
 CEYO does not attempt to:
