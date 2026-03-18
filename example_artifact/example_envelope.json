@@ -22,7 +22,7 @@
       "version": "1.0",
       "hash": {
         "alg": "SHA-256",
-        "value_b64u": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "value_b64u": "<base64url_sha256_of_policy_document>",
         "covers": "policy_document_bytes"
       }
     },
@@ -32,12 +32,12 @@
     "capture": {
       "input_ref_hash": {
         "alg": "SHA-256",
-        "value_b64u": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "value_b64u": "<base64url_sha256_of_policy_scoped_input>",
         "covers": "policy_scoped_input_representation"
       },
       "output_ref_hash": {
         "alg": "SHA-256",
-        "value_b64u": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        "value_b64u": "<base64url_sha256_of_policy_scoped_output>",
         "covers": "policy_scoped_output_representation"
       }
     },
@@ -46,7 +46,7 @@
       "deployment_id": "dep_01HZY8Y3Z9JQ3W6K5Z9H5E9F2A",
       "env_fingerprint": {
         "alg": "SHA-256",
-        "value_b64u": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+        "value_b64u": "<base64url_sha256_of_declared_env_fields>",
         "covers": "declared_env_fields"
       },
       "model_ref": "opaque-model-ref",
@@ -63,13 +63,13 @@
   "integrity": {
     "hash": {
       "alg": "SHA-256",
-      "value_b64u": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+      "value_b64u": "<base64url_sha256_of_canonical_body>",
       "covers": "canonical(body)"
     },
     "sig": {
       "alg": "ECDSA-P256-SHA256",
       "format": "DER",
-      "value_b64u": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+      "value_b64u": "<base64url_der_encoded_ecdsa_signature>",
       "covers": "canonical(body)"
     }
   },
@@ -79,7 +79,7 @@
     "key_id": "kms:aws:us-west-2:111122223333:key/abcd-efgh-ijkl",
     "public_key_fingerprint": {
       "alg": "SHA-256",
-      "value_b64u": "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+      "value_b64u": "<base64url_sha256_of_public_key_spki_der>",
       "covers": "public_key_spki_der"
     }
   }

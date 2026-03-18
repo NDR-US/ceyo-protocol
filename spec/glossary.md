@@ -7,7 +7,7 @@ Artifact Body
 The policy-scoped event data captured by CEYO.
 
 Artifact Envelope
-The metadata and cryptographic integrity fields attached to the artifact body.
+The complete sealed structure containing the artifact body, canonicalization metadata, cryptographic integrity fields, and key reference. This is the output of the sealing process.
 
 Canonicalization
 The deterministic serialization process used before hashing.

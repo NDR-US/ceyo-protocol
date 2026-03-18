@@ -232,6 +232,29 @@ else:
 
 ---
 
+## Step 7: Policy Alignment Check (Optional)
+
+If the artifact contains a `body.policy` object, verify that the declared policy identifier and version match the expected capture policy for the system being audited.
+
+```python
+policy = artifact["body"].get("policy")
+if policy:
+    expected_policy_id = "content-moderation-v2"
+    expected_policy_version = "2.1"
+
+    if policy.get("id") == expected_policy_id and policy.get("version") == expected_policy_version:
+        print("PASS: Policy alignment confirmed")
+    else:
+        print(f"WARNING: Policy mismatch — expected {expected_policy_id} v{expected_policy_version}, "
+              f"got {policy.get('id')} v{policy.get('version')}")
+```
+
+**What policy alignment confirms:** The artifact was generated under the expected capture policy. This is a semantic check — it does not affect cryptographic validity but is important for audit completeness.
+
+**Note:** Policy alignment is an application-level check. The CEYO protocol defines the field structure; enforcement of policy matching is the responsibility of the verification context.
+
+---
+
 ## Running the Built-In Verifier
 
 ### CLI

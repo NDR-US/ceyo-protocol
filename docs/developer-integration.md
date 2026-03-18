@@ -141,7 +141,24 @@ This design ensures:
 - Capture scope is explicitly defined and auditable
 - Artifacts remain useful for verification without containing proprietary data
 
-### 4.2 Capture Fields
+### 4.2 Example Capture Policy Scope
+
+```
+Record:
+  ✓ Event identifier and timestamp
+  ✓ Request identifier
+  ✓ SHA-256 hash of policy-scoped input representation
+  ✓ SHA-256 hash of policy-scoped output representation
+  ✓ Model reference and deployment identifier
+
+Do not record:
+  ✗ Raw user input text
+  ✗ Raw model output
+  ✗ Model weights or parameters
+  ✗ User identity information
+```
+
+### 4.3 Capture Fields
 
 The `capture` object in the artifact body contains references to the data observed during the decision event. Typical fields:
 
@@ -152,7 +169,7 @@ The `capture` object in the artifact body contains references to the data observ
 
 Each hash reference includes `alg`, `value_b64u`, and `covers` fields to make the reference self-describing.
 
-### 4.3 Disclosure Tiers
+### 4.4 Disclosure Tiers
 
 The `disclosure_tier` field controls the sensitivity classification of the artifact:
 

@@ -5,16 +5,16 @@ build-backend = "hatchling.build"
 [project]
 name = "ceyo"
 version = "0.1.0"
-description = "Evidentiary infrastructure for AI systems"
+description = "Evidentiary infrastructure prototype for AI systems"
 readme = "README.md"
-license = { text = "All Rights Reserved" }
+license = "LicenseRef-Proprietary"
 authors = [
     { name = "Brian Covarrubias", email = "bsecure.cov@gmail.com" },
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "cryptography>=41,<44",
-    "rfc8785>=0.1,<2",
+    "cryptography",
+    "rfc8785",
 ]
 
 [project.optional-dependencies]
@@ -22,18 +22,10 @@ dev = [
     "ruff",
     "mypy",
     "coverage",
-    "pytest",
 ]
 
 [project.scripts]
 ceyo = "ceyo.cli:main"
-
-[tool.hatch.build.targets.wheel]
-packages = ["ceyo", "ceyo_verify"]
-
-[project.urls]
-Homepage = "https://ndr-us.github.io/ceyo-site/"
-Repository = "https://github.com/NDR-US/ceyo-protocol"
 
 [tool.ruff]
 target-version = "py310"
@@ -47,12 +39,3 @@ python_version = "3.10"
 warn_return_any = false
 warn_unused_configs = true
 ignore_missing_imports = true
-
-[tool.coverage.run]
-source = ["ceyo", "ceyo_verify"]
-omit = ["ceyo/__main__.py", "ceyo_verify/__main__.py"]
-
-[tool.coverage.report]
-exclude_lines = [
-    "if __name__ == .__main__.:",
-]
