@@ -10,19 +10,17 @@ The architecture is designed to produce tamper-evident evidence records describi
 
 ## Basic Architecture
 
-AI System
+AI System Inference
 ↓
-Decision Event
+Policy-Scoped Capture
 ↓
-CEYO Capture Layer
+Deterministic Canonicalization (RFC 8785)
 ↓
-Artifact Canonicalization (RFC 8785)
+SHA-256 Digest Generation
 ↓
-SHA-256 Hash Generation
+Digital Signature (ECDSA-P256)
 ↓
-ECDSA-P256 Digital Signature
-↓
-Sealed Artifact Record
+CEYO Artifact Envelope
 ↓
 Independent Verification
 
@@ -38,7 +36,7 @@ CEYO does not modify the model, influence its outputs, or interact with model we
 
 ---
 
-Decision Event
+AI Decision Event
 
 A decision event represents the moment an AI system produces a result or recommendation.
 
@@ -51,7 +49,7 @@ Examples include:
 
 ---
 
-CEYO Capture Layer
+Policy-Scoped Capture
 
 The capture layer records policy-scoped fields from the decision event.
 
@@ -65,7 +63,7 @@ This ensures artifacts contain only declared and authorized data.
 
 ---
 
-Artifact Canonicalization
+Deterministic Canonicalization
 
 The captured record is canonicalized using deterministic JSON canonicalization (RFC 8785).
 
@@ -73,7 +71,7 @@ Canonicalization guarantees that the artifact representation is consistent acros
 
 ---
 
-SHA-256 Hash Generation
+SHA-256 Digest Generation
 
 A SHA-256 digest is computed from the canonical artifact representation.
 
@@ -81,7 +79,7 @@ This digest acts as the integrity fingerprint of the artifact.
 
 ---
 
-ECDSA-P256 Digital Signature
+Digital Signature (ECDSA-P256)
 
 The digest is signed using an ECDSA-P256 key.
 
@@ -95,7 +93,7 @@ CEYO does not require custody of signing keys. Key management may be handled by 
 
 ---
 
-Sealed Artifact Record
+CEYO Artifact Envelope
 
 The final artifact contains:
 
@@ -139,13 +137,13 @@ CEYO produces verifiable evidence records, not judgments.
 
 The artifact lifecycle follows a simple deterministic process:
 
-Record → Canonicalize → Hash → Sign → Verify
+Capture → Canonicalize → Hash → Sign → Verify
 
-1. A policy-scoped decision event is recorded  
-2. The artifact body is canonicalized  
-3. A SHA-256 digest is generated  
-4. The digest is signed with an ECDSA key  
-5. The artifact can be independently verified
+1. A policy-scoped decision event is captured
+2. The artifact body is canonicalized (RFC 8785)
+3. A SHA-256 digest is generated
+4. The digest is signed with ECDSA-P256
+5. The artifact envelope can be independently verified
 
 ---
 

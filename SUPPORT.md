@@ -2,23 +2,17 @@
 
 ## Documentation
 
-Most questions about CEYO can be answered by reviewing the specification and
-developer documentation.
+Most questions about CEYO can be answered by reviewing the documentation in the `docs/` directory.
 
-**Protocol specification** (`spec/`):
+Key documents include:
 
-- [`spec/pipeline.md`](spec/pipeline.md) — end-to-end pipeline
-- [`spec/architecture.md`](spec/architecture.md) — system architecture
-- [`spec/specification.md`](spec/specification.md) — artifact specification
-- [`spec/verification-protocol.md`](spec/verification-protocol.md) — verification steps
-- [`spec/threat-model.md`](spec/threat-model.md) — threat model
-- [`spec/transparency-log.md`](spec/transparency-log.md) — transparency log spec
-- [`spec/artifact-schema.json`](spec/artifact-schema.json) — artifact envelope schema
-
-**Developer guides** (`docs/`):
-
-- [`docs/developer-integration.md`](docs/developer-integration.md) — SDK integration
-- [`docs/verification-walkthrough.md`](docs/verification-walkthrough.md) — step-by-step verification
+• architecture.md
+• protocol-specification.md
+• developer-integration.md
+• verification-walkthrough.md
+• security-model.md
+• threat-model.md
+• glossary.md
 
 ---
 
