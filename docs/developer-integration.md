@@ -1,374 +1,272 @@
 # CEYO Developer Integration Guide
 
-**Version:** 1.0
-**Last Updated:** 2026-03-11
+Version: 2.0-draft
 
----
+## 1. Purpose
 
-## 1. Overview
+This guide describes the current public reference implementation for producing protocol-v2 CEYO artifacts.
 
-This guide explains how to integrate CEYO artifact generation into an AI system's inference pipeline. CEYO operates as a sidecar layer — it observes decision events, constructs evidentiary artifacts, and seals them cryptographically. It does not modify inference behavior.
+CEYO can be integrated in-process, at a gateway, or as a sidecar around an AI-supported workflow. The integration point determines what CEYO can observe; the protocol itself does not require access to model weights or raw proprietary internals.
 
-After integration, your system produces cryptographically verifiable records of AI decision events that can be independently validated without access to your infrastructure.
-
----
-
-## 2. Architecture: Where CEYO Attaches
-
-CEYO attaches at the output boundary of the inference pipeline, after the AI system has produced a decision but before the response is returned to the caller.
-
-```
-┌─────────────────────────────────────────────────────┐
-│                   AI System                         │
-│                                                     │
-│   Request ──► Preprocessing ──► Model Inference     │
-│                                       │             │
-│                                       ▼             │
-│                                 Decision Output     │
-│                                       │             │
-│           ┌───────────────────────────┤             │
-│           │                           │             │
-│           ▼                           ▼             │
-│   ┌──────────────┐            Response Returned     │
-│   │ CEYO Capture │                                  │
-│   │    Layer     │                                  │
-│   └──────┬───────┘                                  │
-│          │                                          │
-│          ▼                                          │
-│   Artifact Body ──► Canonicalize ──► Hash ──► Sign  │
-│                                                │    │
-│                                                ▼    │
-│                                        Sealed       │
-│                                        Artifact     │
-└─────────────────────────────────────────────────────┘
-```
-
-**Key principle:** CEYO operates on a non-blocking path. If artifact generation fails, the inference response is unaffected. CEYO is fail-open by design.
-
----
-
-## 3. Integration Steps
-
-### 3.1 Install the CEYO SDK
+## 2. Install
 
 ```bash
-pip install ceyo
+pip install .
 ```
 
-Requires Python 3.10+. The SDK has two dependencies: `cryptography` and `rfc8785`.
+For development:
 
-### 3.2 Initialize a Client
-
-```python
-from ceyo.client import CeyoClient
-
-client = CeyoClient()
+```bash
+pip install -e ".[dev]"
 ```
 
-The default client generates an ephemeral ECDSA P-256 key pair and stores artifacts in a local SQLite database. For production use, configure a key provider and persistent storage.
+The reference implementation requires Python 3.10+ and uses `cryptography` and `rfc8785`.
 
-### 3.3 Instrument Decision Events
+## 3. Choose a key provider
 
-At the point in your pipeline where a decision is produced, call the CEYO client to seal the event:
+For persistent local development:
 
 ```python
-from datetime import datetime, timezone
+from ceyo.keys import LocalKeyProvider
 
-artifact = client.seal(
-    event_id="evt_20260311_001",
-    event_type="classification",
-    occurred_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    request_id="req_abc123",
-    policy_id="content-moderation-v2",
-    policy_version="2.1",
-    disclosure_tier="internal",
-    capture={
-        "input_ref_hash": {
-            "alg": "SHA-256",
-            "value_b64u": "<sha256_of_policy_scoped_input>",
-            "covers": "policy_scoped_input_representation"
-        },
-        "output_ref_hash": {
-            "alg": "SHA-256",
-            "value_b64u": "<sha256_of_policy_scoped_output>",
-            "covers": "policy_scoped_output_representation"
-        }
-    },
-    environment={
-        "deployment_id": "prod-us-east-1",
-        "model_ref": "content-classifier-v3.2",
-        "runtime_ref": "inference-cluster-07"
-    }
+keys = LocalKeyProvider(
+    "keys/ceyo_private.pem",
+    "keys/ceyo_public.pem",
 )
 ```
 
-The `seal()` method:
-1. Constructs the artifact body from the provided fields
-2. Validates the body against the artifact schema
-3. Canonicalizes the body using RFC 8785
-4. Computes the SHA-256 digest
-5. Signs the digest with ECDSA P-256
-6. Assembles the complete artifact envelope
-7. Persists the artifact to the configured store
+The public reference implementation also contains an in-memory provider for testing.
 
-### 3.4 Using the Trace Decorator
+Production deployments should use key-management controls appropriate to their assurance requirements. CEYO's protocol does not require CEYO itself to possess operator private keys; hardware-backed or managed signing can be implemented behind a compatible provider boundary.
 
-For simpler integration, use the `@trace` decorator to automatically capture function calls:
+Protocol v2 currently requires an ECDSA P-256 / secp256r1 signing key.
 
-```python
-from ceyo.client import CeyoClient
+## 4. Construct a policy-scoped body
 
-client = CeyoClient()
-
-@client.trace(event_type="inference", policy_id="default-policy")
-def classify(text: str) -> str:
-    # Your inference logic here
-    return model.predict(text)
-```
-
-Each call to the decorated function generates a sealed artifact automatically.
-
----
-
-## 4. Policy-Scoped Capture
-
-### 4.1 Principle
-
-CEYO does not capture raw model inputs or outputs. Instead, it records policy-scoped references — typically cryptographic hashes of the data, scoped to what the capture policy permits.
-
-This design ensures:
-- No sensitive user data is stored in artifacts
-- Capture scope is explicitly defined and auditable
-- Artifacts remain useful for verification without containing proprietary data
-
-### 4.2 Example Capture Policy Scope
-
-```
-Record:
-  ✓ Event identifier and timestamp
-  ✓ Request identifier
-  ✓ SHA-256 hash of policy-scoped input representation
-  ✓ SHA-256 hash of policy-scoped output representation
-  ✓ Model reference and deployment identifier
-
-Do not record:
-  ✗ Raw user input text
-  ✗ Raw model output
-  ✗ Model weights or parameters
-  ✗ User identity information
-```
-
-### 4.3 Capture Fields
-
-The `capture` object in the artifact body contains references to the data observed during the decision event. Typical fields:
-
-| Field | Description |
-|---|---|
-| `input_ref_hash` | SHA-256 hash of the policy-scoped input representation |
-| `output_ref_hash` | SHA-256 hash of the policy-scoped output representation |
-
-Each hash reference includes `alg`, `value_b64u`, and `covers` fields to make the reference self-describing.
-
-### 4.4 Disclosure Tiers
-
-The `disclosure_tier` field controls the sensitivity classification of the artifact:
-
-- `"public"` — Artifact may be shared with external parties
-- `"internal"` — Artifact restricted to organizational access
-- `"restricted"` — Artifact subject to additional access controls
-
-Tiers are advisory. Enforcement is the responsibility of the storage and access layer.
-
----
-
-## 5. Artifact Construction
-
-### 5.1 Body Construction
-
-The artifact body is assembled from event metadata, policy references, capture data, and environment information. The body is a plain JSON object.
+The body should contain only the evidence authorized by the capture policy.
 
 ```python
 body = {
     "event": {
-        "event_id": "evt_20260311_001",
+        "event_id": "evt_001",
         "type": "classification",
-        "occurred_at": "2026-03-11T14:30:00Z"
+        "occurred_at": "2026-09-15T12:00:00Z",
+        "request_id": "req_001",
     },
     "policy": {
-        "id": "content-moderation-v2",
-        "version": "2.1"
+        "id": "capture-policy",
+        "version": "1.0",
     },
-    "disclosure_tier": "internal",
-    "capture": { ... },
-    "environment": { ... }
+    "capture": {
+        "input_ref_hash": {
+            "alg": "SHA-256",
+            "value_b64u": "<base64url digest>",
+            "covers": "policy_scoped_input_representation",
+        },
+        "output_ref_hash": {
+            "alg": "SHA-256",
+            "value_b64u": "<base64url digest>",
+            "covers": "policy_scoped_output_representation",
+        },
+    },
+    "disclosure_policy": {
+        "tier": "internal",
+        "policy_id": "disclosure-policy",
+        "policy_version": "1.0",
+    },
+    "environment": {
+        "deployment_id": "prod-a",
+        "model_ref": "classifier-v3",
+    },
 }
 ```
 
-### 5.2 Direct Body Sealing
+The example uses hashes/references rather than raw input/output material. That is a deployment choice and does not by itself prove privacy; operators remain responsible for deciding what their capture policy permits.
 
-If you construct the body manually, use `seal_body()`:
+## 5. Seal a v2 artifact
 
 ```python
 from ceyo.seal import seal_body
 
-envelope = seal_body(body, key_provider=my_key_provider)
+artifact = seal_body(body, keys)
 ```
 
----
+`seal_body()` performs the current v2 process:
 
-## 6. Sealing Process
+1. validate the body;
+2. create the `protected` object;
+3. place the artifact ID, `sealed_at`, protocol/body-schema versions, algorithm suites, key reference, and body inside `protected`;
+4. canonicalize the complete `protected` object using RFC 8785;
+5. compute SHA-256 over those canonical bytes;
+6. sign the digest with ECDSA P-256 using prehashed SHA-256;
+7. return `{protected, integrity, receipts}`.
 
-The sealing process transforms an artifact body into a complete, cryptographically sealed envelope.
+Protocol v2 does not silently substitute another serializer when RFC 8785 is unavailable.
 
+`sealed_at` is signer-asserted time. It is protected against later editing but is not an independently trusted timestamp.
+
+## 6. Convenience event builder
+
+The lower-level `ceyo.seal.seal()` helper can construct common event bodies:
+
+```python
+from ceyo.seal import seal
+
+artifact = seal(
+    event_id="evt_001",
+    event_type="classification",
+    occurred_at="2026-09-15T12:00:00Z",
+    request_id="req_001",
+    policy_id="capture-policy",
+    policy_version="1.0",
+    key_provider=keys,
+)
 ```
-Body (JSON object)
-  │
-  ▼
-Canonicalize (RFC 8785)
-  │
-  ▼
-Canonical Bytes (UTF-8)
-  │
-  ▼
-SHA-256 Digest (32 bytes)
-  │
-  ▼
-ECDSA-P256 Sign (DER-encoded signature)
-  │
-  ▼
-Assemble Envelope (body + integrity + key_reference + metadata)
+
+For workflows with more detailed policy, capture, disclosure, or environment structures, building the body explicitly and calling `seal_body()` is clearer.
+
+## 7. High-level client
+
+```python
+from ceyo.client import CeyoClient
+
+client = CeyoClient(key_provider=keys)
+artifact = client.seal(body, persist=False)
 ```
 
-The sealing process is deterministic: the same body, signed with the same key, produces the same hash (though ECDSA signatures include randomness by design).
+If no key provider is supplied, the reference client uses an ephemeral in-memory key and emits a warning. That mode is for development/testing; artifacts cannot be re-verified after the process exits unless the public key is retained separately.
 
----
+## 8. Persist to the local reference store
 
-## 7. Verification
+```python
+from ceyo.store import ArtifactStore
 
-### 7.1 Verifying Artifacts
+with ArtifactStore("artifacts.db") as store:
+    client = CeyoClient(key_provider=keys, store=store)
+    artifact = client.seal(body)
+```
+
+The local SQLite store records full artifact envelopes and maintains a local hash chain.
+
+This is tamper-evident local storage, not a globally witnessed append-only ledger. Rollback or tail truncation can require an external anchor to detect reliably.
+
+## 9. Verify
 
 ```python
 from ceyo.verify import verify_artifact
 
-# Load the public key
-with open("public_key.pem", "rb") as f:
-    pub_key_pem = f.read()
+result = verify_artifact(
+    artifact,
+    keys.get_public_key_pem(),
+)
 
-result = verify_artifact(artifact, pub_key_pem)
-
-if result.ok:
-    print("Verification PASSED")
-else:
-    print("Verification FAILED")
-    for msg in result.failed:
-        print(f"  FAIL: {msg}")
+if not result.ok:
+    raise RuntimeError(result.failed)
 ```
 
-### 7.2 CLI Verification
+The SDK verifier checks protocol/schema support, RFC 8785 canonicalization, the digest/signature over `protected`, P-256 key type, and the protected public-key fingerprint.
+
+Independent verification is also available:
 
 ```bash
-ceyo verify sealed_artifact.json --key public_key.pem
+python -m ceyo_verify artifact.json ceyo_public.pem
 ```
 
-### 7.3 Third-Party Verification
+The `ceyo_verify` package intentionally does not import the CEYO SDK.
 
-Verification requires only:
-- The sealed artifact JSON
-- The public verification key
-- An RFC 8785 implementation
-- Standard SHA-256 and ECDSA P-256 libraries
+## 10. Trace decorator
 
-No access to the CEYO SDK, the AI system, or any proprietary infrastructure is needed.
-
----
-
-## 8. Key Management
-
-### 8.1 Default (Development)
-
-The default `InMemoryKeyProvider` generates an ephemeral ECDSA P-256 key pair. Suitable for development and testing only.
-
-### 8.2 Environment-Based Keys
-
-For CI/CD and containerized deployments, load keys from environment variables using `EnvKeyProvider` (available in ceyo-core):
+The reference client includes a convenience decorator:
 
 ```python
-from ceyo_core import EnvKeyProvider
+from ceyo.client import CeyoClient
 
-provider = EnvKeyProvider()  # Reads CEYO_PRIVATE_KEY, CEYO_KEY_ID
-client = CeyoClient(key_provider=provider)
+client = CeyoClient(key_provider=keys)
+
+@client.trace(event_type="classification", policy_id="capture-policy")
+def classify(text: str) -> str:
+    return model.predict(text)
 ```
 
-### 8.3 HSM / KMS Integration
+The decorator hashes Python representations of inputs and outputs rather than storing them directly, constructs a body, and seals it after the wrapped function returns.
 
-For production environments, use hardware-backed key management:
+That implementation is a development/reference convenience. Production capture semantics should use an explicitly defined representation and policy rather than relying on language-specific `repr()` output as a cross-system evidence format.
+
+## 11. Disclosure policy
+
+`body.disclosure_policy` is a sealing-time commitment. It should describe the disclosure policy/tier that applied when the artifact was sealed.
+
+It is not a mutable field recording every later disclosure.
+
+If a later disclosure needs evidentiary value, represent it as a separate independently signed/attested record that binds at least:
+
+- artifact ID;
+- protected/artifact subject digest;
+- applicable disclosure policy/tier;
+- disclosure time;
+- disclosing authority.
+
+## 12. Receipts
+
+`artifact["receipts"]` is outside the original artifact signature.
+
+This allows later evidence to be attached without re-signing `protected`.
+
+A receipt must not be trusted simply because it exists in the array. A verification profile must validate the receipt's recognized type/version, subject binding, issuer/key, and proof.
+
+Typed receipt schemas are separate from basic artifact validity and should be versioned explicitly.
+
+## 13. Transparency log
+
+A reference Merkle-tree transparency prototype is available:
 
 ```python
-from ceyo_core import KmsKeyProvider
+from ceyo.transparency_log import TransparencyLog
 
-provider = KmsKeyProvider(key_id="arn:aws:kms:us-east-1:...:key/...")
-client = CeyoClient(key_provider=provider)
+with TransparencyLog("ceyo_log.db", keys) as log:
+    entry = log.append(artifact)
+    checkpoint = log.checkpoint()
+    proof = log.prove_inclusion(
+        artifact["protected"]["artifact_id"]
+    )
 ```
 
-The private key never leaves the KMS boundary. Signing operations are delegated to the KMS API.
+For protocol v2, the transparency subject is the stable `{protected, integrity}` core; `receipts` is excluded so later receipt attachment does not alter an existing proof subject.
 
----
+The prototype can provide membership evidence relative to a signed checkpoint. It should not be treated as globally consistent, globally append-only, fresh, or independently time-trusted solely because a checkpoint is signed. Stronger deployments need additional consistency, witness, freshness, and/or trusted-time mechanisms.
 
-## 9. Storage
+## 14. Deployment patterns
 
-### 9.1 Default Store
+### In-process
 
-The CEYO SDK includes a local SQLite-backed artifact store with append-only semantics and hash chaining:
+The application calls the CEYO reference implementation directly. This is simple but shares the application's trust boundary.
 
-```python
-client = CeyoClient(store_path="artifacts.db")
-```
+### Sidecar
 
-### 9.2 Retrieving Artifacts
+A separate process receives explicitly scoped event material and produces artifacts. This can improve operational isolation.
 
-```python
-# By artifact ID
-artifact = client.store.get("ceyo_art_a5e2f966f10d49e1be3c47a5ca")
+### Gateway
 
-# All artifacts
-for artifact in client.store.list():
-    print(artifact["artifact_id"])
-```
+A gateway/proxy observes requests and responses at an infrastructure boundary and applies a defined capture policy before sealing evidence.
 
-### 9.3 Exporting for Audit
+### Restricted / sovereign deployment
 
-```python
-from ceyo_core import StoreExporter
+The same artifact format can be produced inside a customer-controlled VPC, on-premises environment, government cloud, or restricted network. Raw data and signing keys do not need to leave that boundary for an outside verifier to check a later artifact.
 
-exporter = StoreExporter(client.store)
-exporter.to_jsonl("artifacts.jsonl")
-exporter.to_csv("artifacts.csv")
-```
+## 15. Failure behavior
 
----
+Failure behavior is a deployment policy, not a universal CEYO protocol rule.
 
-## 10. Deployment Patterns
+A deployment may choose:
 
-### 10.1 Sidecar
+- **fail-open evidence production** — application/inference continues when evidence generation fails, accepting evidence gaps;
+- **fail-closed for specific workflows** — an operation does not complete without required evidence generation;
+- **degraded/queued mode** — preserve local evidence material for later sealing where the threat model permits it.
 
-CEYO runs as a sidecar process alongside the inference service. The inference service emits decision events over a local interface (function call, Unix socket, or local HTTP). The sidecar seals artifacts independently.
+The choice should be explicit because availability and evidentiary completeness trade off against each other.
 
-### 10.2 In-Process
+## 16. Legacy v1
 
-CEYO runs within the inference process using the SDK. Suitable for simpler deployments where operational isolation is not required.
+New integrations should generate v2 artifacts.
 
-### 10.3 Gateway
-
-A CEYO capture layer sits at the API gateway, observing requests and responses. Artifacts are generated from the gateway's perspective without modifying the inference service.
-
----
-
-## 11. Failure Handling
-
-CEYO is designed to be fail-open. If artifact generation fails for any reason:
-
-- The inference response is NOT blocked or delayed
-- The failure is logged for operational monitoring
-- The system continues normal operation
-
-Artifact generation failures should be treated as operational alerts, not system-critical failures.
+Legacy v1 verification remains available for historical artifacts. V1 signed only `canonical(body)` and therefore has a weaker metadata-integrity boundary. Do not re-seal a v1 artifact and represent the result as though its historical top-level metadata had always been signature-bound.

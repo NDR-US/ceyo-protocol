@@ -1,64 +1,70 @@
 # CEYO Protocol — Specification
 
-This directory is the canonical specification for the CEYO Protocol.
-It defines the protocol standard independently of any implementation.
+This directory contains the implementation-neutral protocol documents and schemas for CEYO.
 
-## Pipeline
+The current artifact format is protocol v2. Legacy v1 remains documented only for historical verification compatibility.
 
-```
-Input / Output
-      ↓
-Canonicalization          spec/pipeline.md §2
-      ↓
-Hash + Signature          spec/pipeline.md §3
-      ↓
-Artifact Envelope         spec/artifact-schema.json
-      ↓
-Transparency Log          spec/transparency-log.md
-      ↓
-Signed Checkpoint         spec/checkpoint.schema.json
-      ↓
-Standalone Verification   spec/verification-protocol.md
-      ↓
-Inclusion Proof Validation spec/transparency-log.md §6
-```
+## Core documents
 
-## Specification Documents
-
-| Document | Description |
-|----------|-------------|
-| [pipeline.md](pipeline.md) | End-to-end pipeline from input capture to inclusion-proof validation |
-| [protocol-specification.md](protocol-specification.md) | Formal protocol specification (fields, algorithms, constants) |
-| [specification.md](specification.md) | Artifact structure and sealing procedure |
-| [transparency-log.md](transparency-log.md) | Transparency log, Merkle tree, checkpoints, inclusion proofs |
-| [architecture.md](architecture.md) | System architecture and component roles |
-| [architecture-diagram.md](architecture-diagram.md) | ASCII architecture diagrams |
-| [artifact-lifecycle.md](artifact-lifecycle.md) | Artifact lifecycle from event to audit |
-| [design-principles.md](design-principles.md) | Core design principles |
-| [security-model.md](security-model.md) | Security guarantees and assumptions |
-| [threat-model.md](threat-model.md) | Threat categories and mitigations |
-| [threat-model-diagram.md](threat-model-diagram.md) | Threat model diagrams |
-| [verification-protocol.md](verification-protocol.md) | Step-by-step verification procedure |
-| [glossary.md](glossary.md) | Terminology definitions |
-| [governance.md](governance.md) | Governance principles and acceptable use |
+| Document | Purpose |
+|---|---|
+| [protocol-specification.md](protocol-specification.md) | Normative v2 artifact structure, signing scope, verification semantics, time model, and v1 compatibility |
+| [pipeline.md](pipeline.md) | End-to-end v2 evidence pipeline |
+| [architecture.md](architecture.md) | Trust boundaries and component roles |
+| [security-model.md](security-model.md) | Security guarantees, assumptions, and explicit non-guarantees |
+| [threat-model.md](threat-model.md) | Threats, mitigations, and residual risks |
+| [transparency-log.md](transparency-log.md) | Merkle inclusion/checkpoint prototype and its limits |
+| [glossary.md](glossary.md) | Protocol terminology |
+| [governance.md](governance.md) | Project governance principles |
 
 ## Schemas
 
-| Schema | Description |
-|--------|-------------|
-| [artifact-schema.json](artifact-schema.json) | JSON Schema (Draft 2020-12) for sealed artifact envelopes |
-| [checkpoint.schema.json](checkpoint.schema.json) | JSON Schema for signed transparency log checkpoints |
-| [inclusion-proof.schema.json](inclusion-proof.schema.json) | JSON Schema for Merkle inclusion proofs |
+| Schema | Purpose |
+|---|---|
+| [artifact-schema.json](artifact-schema.json) | Current protocol-v2 artifact envelope |
+| [artifact-schema-v1.json](artifact-schema-v1.json) | Preserved legacy-v1 artifact envelope |
+| [checkpoint.schema.json](checkpoint.schema.json) | Transparency checkpoint format |
+| [inclusion-proof.schema.json](inclusion-proof.schema.json) | Merkle inclusion-proof format |
 
-## Relationship to Implementation
+## Current artifact pipeline
 
-The specification in this directory defines the protocol standard.
-The Python packages implement it:
+```text
+Policy-scoped body
+        ↓
+Build protected object
+        ↓
+Canonicalize protected
+        ↓
+SHA-256 digest
+        ↓
+ECDSA-P256 signature
+        ↓
+{ protected, integrity, receipts[] }
+        ↓
+Independent artifact verification
+        ↓
+Optional trust-profile evaluation
+        ↓
+Optional external receipts / transparency evidence
+```
+
+## Protocol-v2 invariant
+
+A conforming v2 verifier must derive artifact-level validity and trust inputs only from authenticated fields in `protected` or independently authenticated external evidence.
+
+`receipts` is outside the original artifact signature by design. Receipt presence alone has no trust meaning until the receipt is validated under a recognized profile.
+
+## Time model
+
+`protected.sealed_at` is signature-bound but self-asserted by the signer. It prevents later timestamp editing; it does not prevent signer backdating.
+
+Externally trusted historical time requires a separately authenticated time mechanism accepted by the verification profile.
+
+## Reference implementations
 
 | Directory | Role |
-|-----------|------|
-| `/ceyo` | Reference implementation (sealing, verification, store, transparency log) |
-| `/ceyo_verify` | Independent verifier (no SDK dependency) |
+|---|---|
+| `/ceyo` | Python reference implementation: sealing, verification, local store, transparency prototype |
+| `/ceyo_verify` | Independent verifier with no dependency on the `ceyo` SDK package |
 
-Any conformant implementation must produce and verify artifacts that
-satisfy the schemas and algorithms described here.
+The specification is authoritative for protocol semantics. Reference code should be treated as an implementation of those rules, not as a substitute for them.

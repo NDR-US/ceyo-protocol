@@ -1,86 +1,83 @@
 {
-  "product": "CEYO",
-  "envelope_version": "1.0",
-  "artifact_schema": {
-    "name": "ceyo.artifact",
-    "version": "1.0"
-  },
-
-  "artifact_id": "ceyo_art_01HZY8Y3Z9JQ3W6K5Z9H5E9F2A",
-  "created_at": "2026-03-05T18:20:11Z",
-
-  "body": {
-    "event": {
-      "event_id": "evt_01HZY8Y3Z9JQ3W6K5Z9H5E9F2A",
-      "type": "inference",
-      "occurred_at": "2026-03-05T18:20:10Z",
-      "request_id": "req_8b8e6f3d-0f7e-4f0d-9c1a-1c7d9a1f6c9c"
+  "protected": {
+    "product": "CEYO",
+    "protocol_version": "2.0",
+    "artifact_schema": {
+      "name": "ceyo.artifact",
+      "version": "1.0"
     },
-
-    "policy": {
-      "id": "POL-001",
-      "version": "1.0",
-      "hash": {
-        "alg": "SHA-256",
-        "value_b64u": "<base64url_sha256_of_policy_document>",
-        "covers": "policy_document_bytes"
-      }
+    "artifact_id": "ceyo_art_0123456789abcdef0123456789",
+    "sealed_at": "2026-09-15T12:00:01Z",
+    "canonicalization_suite": {
+      "scheme": "RFC8785",
+      "version": "1.0"
     },
-
-    "disclosure_tier": "public",
-
-    "capture": {
-      "input_ref_hash": {
-        "alg": "SHA-256",
-        "value_b64u": "<base64url_sha256_of_policy_scoped_input>",
-        "covers": "policy_scoped_input_representation"
-      },
-      "output_ref_hash": {
-        "alg": "SHA-256",
-        "value_b64u": "<base64url_sha256_of_policy_scoped_output>",
-        "covers": "policy_scoped_output_representation"
-      }
-    },
-
-    "environment": {
-      "deployment_id": "dep_01HZY8Y3Z9JQ3W6K5Z9H5E9F2A",
-      "env_fingerprint": {
-        "alg": "SHA-256",
-        "value_b64u": "<base64url_sha256_of_declared_env_fields>",
-        "covers": "declared_env_fields"
-      },
-      "model_ref": "opaque-model-ref",
-      "runtime_ref": "opaque-runtime-ref"
-    }
-  },
-
-  "canonicalization": {
-    "scheme": "RFC8785",
-    "version": "1.0",
-    "scope": "body"
-  },
-
-  "integrity": {
-    "hash": {
-      "alg": "SHA-256",
-      "value_b64u": "<base64url_sha256_of_canonical_body>",
-      "covers": "canonical(body)"
-    },
-    "sig": {
+    "signing_suite": {
       "alg": "ECDSA-P256-SHA256",
       "format": "DER",
-      "value_b64u": "<base64url_der_encoded_ecdsa_signature>",
-      "covers": "canonical(body)"
+      "hash": "SHA-256"
+    },
+    "key_reference": {
+      "registry": "example",
+      "key_id": "example:p256",
+      "public_key_fingerprint": {
+        "alg": "SHA-256",
+        "value_b64u": "CA3hxEilxsL2LDVMom4FN1Be4WNGg-hRYCaTXpV70-U",
+        "covers": "public_key_spki_der"
+      }
+    },
+    "body": {
+      "event": {
+        "event_id": "evt_example_001",
+        "type": "inference",
+        "occurred_at": "2026-09-15T12:00:00Z",
+        "request_id": "req_example_001"
+      },
+      "policy": {
+        "id": "capture-policy",
+        "version": "1.0",
+        "digest": {
+          "alg": "SHA-256",
+          "value_b64u": "PSiZgUhgKvNsBa78T6F355STA4M53n5tk2mvRjdY5u8",
+          "covers": "policy_document_bytes"
+        }
+      },
+      "capture": {
+        "input_ref_hash": {
+          "alg": "SHA-256",
+          "value_b64u": "7WohAl8kwJOC-rw-J-YGSstbkouKmyzmBX7b8-CEQT0",
+          "covers": "policy_scoped_input_representation"
+        },
+        "output_ref_hash": {
+          "alg": "SHA-256",
+          "value_b64u": "7keb0di2FQu-5dMchiSUiS41jE-xz2fLDgoLO0T3sTk",
+          "covers": "policy_scoped_output_representation"
+        }
+      },
+      "disclosure_policy": {
+        "tier": "internal",
+        "policy_id": "disclosure-policy",
+        "policy_version": "1.0"
+      },
+      "environment": {
+        "deployment_id": "example-deployment",
+        "model_ref": "opaque-model-ref",
+        "runtime_ref": "opaque-runtime-ref"
+      }
     }
   },
-
-  "key_reference": {
-    "registry": "operator",
-    "key_id": "kms:aws:us-west-2:111122223333:key/abcd-efgh-ijkl",
-    "public_key_fingerprint": {
+  "integrity": {
+    "digest": {
       "alg": "SHA-256",
-      "value_b64u": "<base64url_sha256_of_public_key_spki_der>",
-      "covers": "public_key_spki_der"
+      "value_b64u": "u_T5FYQ1qzRrQGn0-wN1aZrD1XInKieSzCeaJPyMQQM",
+      "covers": "canonical(protected)"
+    },
+    "signature": {
+      "alg": "ECDSA-P256-SHA256",
+      "format": "DER",
+      "value_b64u": "MEYCIQCTZurFsNIXEtEzkr_1uFmfj20eVW6mC_wVaIrenr7hdwIhAPg72h0tyOGoxw-b3bOKOwDGW1F1pNttur8FsMoZGdEx",
+      "covers": "sha256(canonical(protected))"
     }
-  }
+  },
+  "receipts": []
 }

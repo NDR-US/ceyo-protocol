@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
-import warnings
 from typing import Any
 
 try:
     import rfc8785
-    HAS_RFC8785 = True
-except ImportError:
-    HAS_RFC8785 = False
+except ImportError as exc:  # pragma: no cover - dependency is required by the package
+    rfc8785 = None  # type: ignore[assignment]
+    _RFC8785_IMPORT_ERROR: ImportError | None = exc
+else:
+    _RFC8785_IMPORT_ERROR = None
 
 
 def b64u(data: bytes) -> str:
@@ -20,40 +20,41 @@ def b64u(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
 
-def b64u_decode(s: str) -> bytes:
-    """Base64url decode, re-adding padding as needed."""
-    s += "=" * (-len(s) % 4)
-    return base64.urlsafe_b64decode(s)
+def b64u_decode(value: str) -> bytes:
+    """Strictly decode an unpadded base64url string."""
+    if not isinstance(value, str) or not value:
+        raise ValueError("base64url value must be a non-empty string")
+    try:
+        raw = value.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError("base64url value must contain ASCII characters only") from exc
+    padded = raw + b"=" * (-len(raw) % 4)
+    try:
+        return base64.b64decode(padded, altchars=b"-_", validate=True)
+    except Exception as exc:
+        raise ValueError("invalid base64url value") from exc
 
 
 def canonicalize(obj: Any) -> bytes:
-    """Canonicalize a JSON-serializable object.
+    """Canonicalize a JSON value using RFC 8785 (JCS).
 
-    Uses RFC 8785 (JCS) if available, otherwise a deterministic fallback
-    with sorted keys and compact separators.
+    Protocol v2 intentionally has one normative canonicalization suite. A
+    verifier must never substitute another serializer when an artifact declares
+    RFC8785. Historical v1 artifacts may still declare a legacy deterministic
+    JSON fallback; v1 verification handles that compatibility case separately.
     """
-    if HAS_RFC8785:
-        return rfc8785.dumps(obj)
-    warnings.warn(
-        "rfc8785 is not installed; using non-standard 'deterministic-json-fallback' "
-        "canonicalization. Artifacts sealed with this scheme cannot be verified by "
-        "systems using RFC 8785, and vice versa. Install rfc8785 for standard compliance.",
-        RuntimeWarning,
-        stacklevel=2,
-    )
-    return json.dumps(
-        obj,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
+    if rfc8785 is None:
+        raise RuntimeError(
+            "RFC8785 canonicalization is required for CEYO protocol v2"
+        ) from _RFC8785_IMPORT_ERROR
+    return rfc8785.dumps(obj)
 
 
 def canon_scheme() -> str:
-    """Return the name of the active canonicalization scheme."""
-    return "RFC8785" if HAS_RFC8785 else "deterministic-json-fallback"
+    """Return the canonicalization suite emitted by the current protocol."""
+    return "RFC8785"
 
 
 def sha256(data: bytes) -> bytes:
-    """Compute SHA-256 digest."""
+    """Compute a SHA-256 digest."""
     return hashlib.sha256(data).digest()

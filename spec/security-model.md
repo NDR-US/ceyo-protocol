@@ -1,199 +1,193 @@
-CEYO Security Model
+# CEYO Security Model
 
-Overview
+## Purpose
 
-This document describes the security model of CEYO and defines the guarantees provided by the system when generating and verifying evidentiary artifacts.
+This document defines what CEYO protocol-v2 artifact verification can establish, the assumptions required for those conclusions, and the properties it deliberately does not claim.
 
-CEYO is designed to produce deterministic, cryptographically sealed artifacts that describe AI system events. These artifacts enable independent verification of artifact integrity and authenticity without requiring access to the original AI system.
+CEYO is evidentiary infrastructure. It authenticates a policy-scoped record and selected artifact metadata; it does not determine whether the underlying AI event was correct, complete, fair, lawful, compliant, or objectively true.
 
-The security model clarifies the scope of protection provided by CEYO and identifies the assumptions under which those guarantees hold.
+## Security invariant
 
-⸻
+A conforming v2 verifier MUST derive artifact-level validity and trust inputs only from:
 
-Security Objectives
+- fields contained in the signed `protected` object; or
+- independently authenticated external evidence validated by the applicable profile.
 
-The CEYO architecture is designed to provide the following security guarantees.
+Unauthenticated envelope metadata MUST NOT influence artifact trust status.
 
-Artifact Integrity
+## Artifact-validity guarantees
 
-Once an artifact has been sealed, any modification to its contents must be detectable.
+When a protocol-v2 artifact passes schema checks, canonicalization, digest verification, signature verification, and public-key fingerprint matching, the verifier can conclude the following within the stated assumptions.
 
-Artifact integrity is enforced through deterministic canonicalization combined with cryptographic hashing and digital signatures.
+### Protected-state integrity
 
-If any artifact field is altered after sealing, verification will fail.
+The canonical `protected` object presented to the verifier matches the SHA-256 digest recorded in the artifact.
 
-⸻
+Changing a canonicalized field in `protected` after sealing changes the recomputed digest and causes artifact verification to fail unless a new valid signature is produced.
 
-Artifact Authenticity
+### Signature validity
 
-Artifacts must be verifiably associated with the entity that generated the signature.
+The ECDSA P-256 signature verifies over the SHA-256 digest of `canonical(protected)` under the supplied public key.
 
-Verification procedures confirm that the artifact was signed by the declared signing key.
+This demonstrates successful use of the corresponding private key. It does not, by itself, establish the real-world identity, authority, or trustworthiness of whoever controlled that key.
 
-Authenticity ensures that artifact records cannot be forged without access to the signing key.
+### Key-reference integrity
 
-⸻
+`protected.key_reference` is inside the v2 signature scope. Registry, key identifier, fingerprint, and any included authority metadata therefore cannot be changed after sealing without invalidating the artifact.
 
-Deterministic Verification
+The verifier separately confirms that the supplied public key matches the fingerprint committed to in `protected.key_reference`.
 
-Artifact verification must produce consistent results across independent implementations.
+### Algorithm commitment
 
-Deterministic canonicalization ensures that independent verifiers computing hashes from the same artifact data produce identical results.
+The canonicalization and signing-suite declarations are also inside `protected`. The artifact therefore commits to the exact supported cryptographic processing rules used for the artifact.
 
-This property allows artifact verification to be performed by external parties without relying on proprietary software.
+### Signer-asserted sealing time integrity
 
-⸻
+`protected.sealed_at` is signature-bound. A third party cannot alter it later without invalidating the artifact.
 
-Independent Validation
+This is not the same as trusted time. A malicious or compromised signer can still use an incorrect clock or deliberately backdate when creating the artifact.
 
-CEYO artifacts must be verifiable without access to the original AI system.
+## Validity is not trust
 
-Verification requires only:
-	•	the artifact record
-	•	the declared schema version
-	•	the verification procedure
-	•	the public verification key
+CEYO separates cryptographic validity from higher-level evidentiary trust.
 
-This design enables artifact validation long after the original event occurred.
+```text
+artifact validity
+    = protected object + digest/signature/key-fingerprint verification
 
-⸻
+trust / evidentiary status
+    = artifact validity
+    + signer/key authorization
+    + revocation/status evidence
+    + required receipts/anchors
+    + verification-profile policy
+```
 
-Security Assumptions
+A cryptographically valid artifact can therefore be untrusted, indeterminate, or insufficient under a stricter verification profile.
 
-The security guarantees provided by CEYO rely on several assumptions.
+## Receipts and external evidence
 
-Secure Key Management
+`receipts` is outside the original artifact signature so additional evidence can be attached later.
 
-Artifact authenticity depends on the secure management of signing keys.
+The presence of a receipt does not automatically strengthen trust. A verifier must validate the receipt's type, subject binding, issuer/key, cryptographic proof, and any profile-specific requirements before relying on it.
 
-Signing keys must be protected using appropriate key management systems.
+Unknown or unauthenticated receipt objects MUST NOT satisfy a trust requirement merely because they appear in the `receipts` array.
 
-Possible key management environments include:
-	•	hardware security modules
-	•	cloud key management services
-	•	trusted execution environments
+## Time model
 
-If a signing key is compromised, attackers may generate artifacts that appear valid.
+CEYO distinguishes multiple time claims.
 
-⸻
+### Event time
 
-Correct Canonicalization
+`body.event.occurred_at` is the originating system's assertion about when the underlying event occurred.
 
-Verification assumes that canonicalization procedures are implemented correctly and consistently across systems.
+### Sealing time
 
-If different implementations produce inconsistent canonical representations, verification may fail or produce inconsistent results.
+`protected.sealed_at` is the signer's assertion about when the artifact was sealed. It is protected against later editing but is not independently trustworthy solely because it is signed.
 
-⸻
+### External time
 
-Trusted Capture Policies
+An external timestamp, transparency receipt, witnessed checkpoint, or equivalent mechanism may provide a stronger time basis if its own trust assumptions are accepted by the verification profile.
 
-Artifact contents depend on capture policies defined by system operators.
+Historical key-status or revocation evaluation SHOULD use accepted external time evidence when the profile requires protection against signer backdating.
 
-If capture policies are incomplete or incorrectly defined, important event information may not be recorded.
+If no acceptable external anchor exists, the verifier should describe the time basis as signer-asserted rather than independently established.
 
-CEYO does not enforce policy correctness.
+## Revocation
 
-⸻
+Revocation state is external to the immutable artifact.
 
-Honest Deployment Environment
+Protocol v2 commits to the signing-key identity/fingerprint in `protected`. A trust verifier evaluates key status from independently authenticated status/revocation evidence.
 
-The deployment environment must correctly implement artifact generation procedures.
+A verifier must not silently convert an unavailable or ambiguous revocation check into a positive trust conclusion. Profiles that require revocation evidence should represent unavailable evidence as indeterminate or unsatisfied.
 
-If the environment intentionally suppresses artifact generation or modifies event data prior to sealing, CEYO cannot detect such behavior.
+## Capture assumptions
 
-⸻
+CEYO protects information only after the signed `protected` state is constructed.
 
-Security Boundaries
+CEYO cannot independently prove that:
 
-CEYO defines clear boundaries around the guarantees it provides.
+- every event that should have been captured was captured;
+- source data was truthful before capture;
+- the operator did not omit relevant information before sealing;
+- a declared capture policy was correctly designed or enforced.
 
-What CEYO Protects
+Those properties require complementary controls such as independent monitoring, gateway enforcement, trusted execution, attestations, or external audit evidence.
 
-CEYO protects the integrity and authenticity of artifact records after they have been generated and sealed.
+## Signing-key assumptions
 
-Verification can confirm:
-	•	artifact contents have not been modified
-	•	the artifact was signed by the declared key
-	•	the artifact follows the declared schema
+Artifact authenticity depends on the security of the private signing key.
 
-⸻
+If the private key is compromised, an attacker may create new artifacts that pass cryptographic verification until the compromise is detected and the key's trust status is updated.
 
-What CEYO Does Not Protect
+Deployments should use key-management controls appropriate to their assurance requirements, potentially including HSM/KMS-backed signing, access controls, rotation, audit logging, and independently available revocation/status infrastructure.
 
-CEYO does not guarantee:
-	•	correctness of AI decisions
-	•	fairness or bias properties of AI systems
-	•	regulatory compliance
-	•	completeness of recorded data
-	•	security of the AI system itself
+CEYO does not require CEYO itself to possess operator private keys.
 
-CEYO focuses exclusively on evidentiary artifact generation and verification.
+## Canonicalization assumptions
 
-⸻
+Producer and verifier must implement the declared canonicalization suite consistently.
 
-Verification Guarantees
+A verifier must not silently substitute another serialization scheme. The separately named deterministic fallback is not equivalent to RFC 8785 and must remain distinguishable in the artifact.
 
-Successful verification of an artifact confirms the following properties.
+Cross-implementation test vectors are required for high-confidence interoperability.
 
-The artifact body has not been modified since sealing.
+## Storage guarantees
 
-The artifact signature corresponds to the declared signing key.
+The reference `ArtifactStore` hashes each stored envelope and chains rows together locally.
 
-The artifact structure conforms to the declared schema version.
+This can detect modification of stored rows and many middle-of-chain deletions when verifying the available database state. It is not a complete externally witnessed append-only guarantee.
 
-The artifact canonicalization procedure produces the expected hash value.
+In particular, tail truncation or rollback to an earlier internally consistent state can remain undetectable unless a later chain head/count/checkpoint is anchored outside the local store.
 
-These guarantees allow independent parties to validate artifact integrity without trusting the original system.
+## Transparency-log guarantees
 
-⸻
+The reference transparency-log prototype can produce Merkle inclusion proofs and signed checkpoints.
 
-Operational Security Considerations
+A successfully verified inclusion proof can demonstrate membership in the tree represented by the supplied checkpoint.
 
-System operators deploying CEYO should consider the following operational practices.
+The current design must not be described as globally append-only or globally consistent solely because inclusion proofs and signed checkpoints exist. Stronger properties require additional mechanisms such as consistency proofs, witnesses, monitors, gossip, or independent checkpoint anchoring.
 
-Signing keys should be rotated periodically to limit the impact of key compromise.
+A checkpoint's own signed timestamp is still an assertion of the checkpoint signer unless independently anchored.
 
-Artifact storage systems should implement tamper-resistant storage mechanisms.
+## Protocol-v1 boundary
 
-Verification tools should enforce strict schema validation.
+Protocol v1 signed only `canonical(body)`. Its top-level key reference and creation timestamp were not part of that signature scope.
 
-Capture policies should be reviewed to ensure appropriate event coverage.
+V1 artifacts remain cryptographically verifiable under their original semantics, but they provide a weaker metadata-integrity guarantee than v2.
 
-Monitoring systems may detect anomalies in artifact generation rates.
+A v1 artifact must not be rewritten or described as though those fields were historically signature-bound. A later attestation may add new evidence about the exact v1 artifact digest, but it cannot change the original guarantee.
 
-Private signing keys should never be stored in plaintext within application code or configuration files.
+## What successful v2 artifact verification does not establish
 
-⸻
+It does not establish:
 
-Key Revocation
+- objective truth of the underlying event;
+- independent accuracy of `event.occurred_at` or `sealed_at`;
+- completeness of pre-seal capture;
+- correctness of an AI output;
+- fairness or absence of bias;
+- regulatory compliance;
+- legal admissibility;
+- authorization of a key merely because the signature verifies;
+- uncompromised status of the signing key without status/revocation evidence;
+- global transparency-log consistency without additional mechanisms.
 
-If a signing key is compromised, it must be revoked immediately.
+## Operational guidance
 
-Verification systems should consult revocation records before accepting artifact signatures.
+Deployments should select controls based on the required assurance profile. Common controls include:
 
-Artifacts signed with revoked keys may require additional review or re-evaluation depending on organizational policy.
+- protected private-key storage;
+- explicit trust-anchor and key-registration procedures;
+- key rotation and signed revocation/status records;
+- strict schema validation;
+- canonicalization interoperability testing;
+- artifact-generation monitoring to detect suppression/gaps;
+- external anchoring of storage/log state where rollback resistance is required;
+- independently authenticated time evidence where historical-time trust is required.
 
-The key_reference field in each artifact identifies the signing key, enabling revocation tracking across the artifact store.
+## Summary
 
-⸻
+CEYO v2 provides a stronger artifact-integrity boundary by signing the complete `protected` state, including the key reference and signer-asserted sealing time. That closes metadata-tampering gaps present in the legacy v1 envelope.
 
-Trust Distribution
-
-Public verification keys should be distributed through trusted channels.
-
-Possible approaches include:
-	•	secure key registries
-	•	certificate authorities
-	•	operator-managed verification directories
-
-Verification systems must ensure the authenticity of public keys before using them for artifact validation.
-
-⸻
-
-Summary
-
-CEYO provides a cryptographically verifiable evidentiary infrastructure for recording AI system events.
-
-The system guarantees artifact integrity and authenticity through deterministic canonicalization and cryptographic sealing while allowing independent verification without access to the original AI system.
-
-The security model defines the boundaries of these guarantees and the assumptions required for artifact verification to remain reliable.
+The protocol deliberately stops short of claiming objective truth, trusted time, regulatory compliance, or institutional trust from cryptographic validity alone. Those conclusions require additional independently authenticated evidence and explicit verification profiles.
