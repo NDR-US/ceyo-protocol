@@ -1,58 +1,80 @@
 # Changelog
 
-## [Unreleased] — transparency log + protocol structure
+## [Unreleased] — protocol-v2 protected artifact envelope
 
-### Added
+### Security boundary
 
-- **Transparency log** (`ceyo/transparency_log.py`) — `TransparencyLog` class backed by SQLite. Append-only Merkle tree log using RFC 6962 hash-prefix domain separation (`0x00` for leaves, `0x01` for internal nodes). `append()` records each artifact's hash as a Merkle leaf. `checkpoint()` signs the current root with ECDSA-P256-SHA256. `prove_inclusion()` generates a sibling-path inclusion proof.
-- **Standalone inclusion-proof verifier** (`ceyo_verify/transparency.py`) — `verify_inclusion_proof()` recomputes the Merkle root from the sibling path, verifies the checkpoint signature, and optionally binds the proof to the original artifact envelope. Zero `ceyo` SDK dependency.
-- **`CeyoClient.log`** — optional `TransparencyLog` parameter; `seal()` auto-appends each artifact when `persist=True`.
-- **`ceyo log` CLI subcommands** — `list`, `checkpoint`, `prove`, `verify-proof`.
-- **`ceyo_verify.verify_inclusion_proof`** — re-exported from `ceyo_verify/__init__.py`.
-- **`ceyo.TransparencyLog`** — re-exported from `ceyo/__init__.py`.
+- Introduced the protocol-v2 artifact shape: `{protected, integrity, receipts}`.
+- Widened artifact signature scope from legacy `canonical(body)` to `canonical(protected)`.
+- Moved artifact identity, protocol/body-schema versions, signer-asserted sealing time, canonicalization/signing suites, key reference/fingerprint, and policy-scoped body into the signature-bound `protected` object.
+- Added explicit fail-closed dispatch for unsupported protocol versions and cryptographic suites.
+- Preserved protocol-v1 verification under its original narrower scope rather than retroactively representing v1 metadata as signature-bound.
 
-### Specification
+### Time and trust semantics
 
-- **`spec/pipeline.md`** — full end-to-end pipeline specification: Input/Output → Canonicalization → Hash+Signature → Artifact Envelope → Transparency Log → Signed Checkpoint → Standalone Verification → Inclusion Proof Validation.
-- **`spec/transparency-log.md`** — formal transparency log specification: log entries, Merkle tree construction, checkpoint structure and signing, inclusion proof generation and verification algorithms, security properties.
-- **`spec/checkpoint.schema.json`** — JSON Schema (Draft 2020-12) for signed log checkpoints.
-- **`spec/inclusion-proof.schema.json`** — JSON Schema (Draft 2020-12) for Merkle inclusion proofs.
-- **`spec/README.md`** — specification index.
+- Replaced the v2 artifact creation timestamp concept with signature-bound `protected.sealed_at`.
+- Documented `sealed_at` as signer-asserted time: later editing is detectable, but signer backdating is not prevented by the artifact signature alone.
+- Separated artifact cryptographic validity from higher-level trust/evidentiary status.
+- Documented that historical revocation evaluation may require independently authenticated external-time evidence under higher-assurance profiles.
 
-### Repository Structure
+### Artifact schema and verification
 
-- Protocol-level documents moved from `docs/` to `spec/`: `specification.md`, `protocol-specification.md`, `architecture.md`, `architecture-diagram.md`, `artifact-lifecycle.md`, `design-principles.md`, `glossary.md`, `governance.md`, `security-model.md`, `threat-model.md`, `threat-model-diagram.md`, `verification-protocol.md`.
-- `docs/` now contains only developer-facing guides: integration, key management, verification walkthrough, example workflow.
-- `docs/artifact-schema.json` renamed to `docs/example-artifact.json` (it is an example artifact, not a schema).
-- `docs/artifact-envelope.schema.json` removed (duplicate of `spec/artifact-schema.json`).
-- `docs/README.md` added as a developer docs index.
+- Added `spec/artifact-schema-v1.json` to preserve the legacy format.
+- Updated `spec/artifact-schema.json` to the protocol-v2 envelope.
+- Added body support for exact policy digests and structured sealing-time `disclosure_policy` commitments.
+- Updated both `ceyo.verify` and the independent `ceyo_verify` package to recognize v2 and legacy-v1 artifacts.
+- Bound `key_reference` into the v2 signed scope and retained public-key fingerprint verification.
+- Kept the independently implemented `ceyo_verify` package free of imports from the `ceyo` SDK.
+
+### Receipts
+
+- Reserved `receipts[]` outside the original artifact signature so independently authenticated evidence can be attached later without rewriting the sealed artifact.
+- Defined the security rule that arbitrary receipt presence has no trust meaning until a recognized receipt validator checks subject binding, issuer/key, proof, and profile requirements.
+- Typed receipt schemas and the external-time profile remain separate hardening work.
+
+### Transparency prototype
+
+- Retained the local Merkle inclusion-log prototype with domain-separated SHA-256 leaf/node hashing, inclusion proofs, and signed checkpoints.
+- Changed the protocol-v2 transparency subject to the stable artifact core `{protected, integrity}`, excluding appendable `receipts` so later receipt attachment does not invalidate or circularly redefine existing inclusion proofs.
+- Fixed transparency canonicalization to RFC 8785 for both producer and independent proof verifier rather than allowing an undeclared fallback.
+- Clarified that checkpoint timestamps are signer assertions and do not by themselves establish freshness or independently trusted time.
+- Clarified that the current checkpoint `key_reference` is descriptive metadata outside the checkpoint signature; the trusted checkpoint key must come from an external trust path.
+- Documented that the reference transparency component does not yet provide global append-only consistency, anti-equivocation, freshness, consistency proofs, witnesses, monitors, gossip, or rollback-resistant external anchoring.
+
+### Local storage
+
+- Retained SQLite artifact storage with local sequence/hash chaining.
+- Documented that local chain verification can detect many stored-row modifications and middle deletions but cannot, by itself, guarantee detection of tail truncation or rollback to an earlier internally consistent state.
+
+### Documentation
+
+- Aligned README, protocol specification, pipeline, architecture, security model, threat model, governance, glossary, developer integration, verification walkthrough, and transparency specification with the same protocol-v2 terminology and security boundaries.
+- Removed claims that artifact validity alone proves AI correctness, compliance, fairness, legal admissibility, objective event truth, independently trusted time, or global transparency consistency.
+- Replaced stale developer-documentation links with the maintained v2 guides and canonical example paths.
+- Updated the standalone sealing utility and runnable examples for the protected-envelope format.
+
+### Examples
+
+- Replaced the legacy example envelope with a protocol-v2 artifact.
+- Added the corresponding public verification key for independent verification of the committed example.
 
 ### Tests
 
-- 45 new tests: `TestMerkleTree`, `TestTransparencyLog`, `TestInclusionProofVerification`, `TestTransparencyLogClientIntegration`. Total: 149 tests.
+- Reworked the test suite around protocol-v2 security invariants and legacy compatibility, including:
+  - mutation of every top-level `protected` field;
+  - nested policy/event/capture/environment/key-reference mutation;
+  - required-field deletion;
+  - receipt append/tamper behavior;
+  - wrong-key, digest, signature, and fingerprint failures;
+  - schema-disabled fail-closed protocol/suite checks;
+  - deterministic canonicalization coverage;
+  - committed golden-example verification;
+  - explicit legacy-v1 tests demonstrating its historical unsigned-metadata boundary;
+  - local-store tamper and tail-truncation behavior;
+  - stable v2 transparency subjects across receipt attachment;
+  - Merkle inclusion/checkpoint verification.
 
----
+### CI status
 
-## [Unreleased] — hardening pass
-
-### Added
-
-- **`ceyo_verify` standalone package** (`ceyo_verify/`) — a self-contained artifact verifier that depends only on `cryptography` and `rfc8785`, with no import from `ceyo`. Fulfills the independent-verifier requirement of the protocol. Runnable as `python -m ceyo_verify <artifact.json> <pubkey.pem>`.
-- **`ceyo keygen` CLI command** — generates an ECDSA P-256 key pair and writes both PEM files. Supports `--out-private`, `--out-public`, and `--force` flags.
-- **`ceyo store inspect` CLI command** — prints a single artifact from a store database by `artifact_id`.
-- **Negative test suite** (`TestNegativeCases`) — explicit tests for: wrong product value, missing body, bad `artifact_id` pattern, bad `created_at` datetime, wrong hash algorithm, wrong signature algorithm, extra top-level field, missing event fields, bad `occurred_at`, tampered body, tampered hash value, corrupt signature bytes, wrong public key, and fingerprint mismatch.
-- **Round-trip test suite** (`TestRoundTrip`) — seal → `store.append` → `store.get_by_seq` → `verify_artifact`, 20-entry chain integrity check, convenience `seal()` round-trip, and cross-check that standalone verifier matches SDK verifier.
-- **CLI smoke tests** (`TestCLI`) — subprocess tests for `keygen`, `seal`, `verify`, `store list`, `store inspect`, `store verify-chain`, and `python -m ceyo_verify`.
-
-### Hardened
-
-- **Schema validation** — added ISO 8601 datetime pattern check (`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}...`) for `created_at` and `event.occurred_at`. Added base64url character pattern (`^[A-Za-z0-9_-]+$`) for all `value_b64u` fields in `integrity.hash`, `integrity.sig`, and `key_reference.public_key_fingerprint`.
-- **CI workflow** — removed broken reference to deleted `seal_artifact.py`; demo job now uses `ceyo keygen` + `ceyo seal` + dual verification (`ceyo verify` and `python -m ceyo_verify`). Coverage discovery updated to `unittest discover`.
-- **Coverage source** — extended to include `ceyo_verify` package.
-
-### Fixed
-
-- `seal` CLI output now also prints the `artifact_id` alongside the output file path and public key path.
-- `examples/basic_usage.py` — removed `sys.path` hack; now imports cleanly after `pip install -e .`. Added `example_standalone_verify()` demonstrating `ceyo_verify` independence.
-- README rewritten for external reviewer: accurate install instructions, full CLI reference table, artifact envelope structure, runtime-generated file table, package boundary explanation.
-- `pyproject.toml` — added `pytest` to dev dependencies; added `[tool.hatch.build.targets.wheel] packages` to explicitly include both `ceyo` and `ceyo_verify`.
+- The GitHub Actions workflow remains configured for lint/type checking, Python 3.10–3.12 tests, coverage, and CLI demo verification.
+- Current draft-branch workflow attempts have not produced executable job steps/logs in GitHub, so the branch must not be represented as CI-green until a workflow run actually executes successfully.
