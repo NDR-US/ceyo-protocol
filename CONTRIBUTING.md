@@ -1,54 +1,69 @@
 # Contributing to CEYO
 
-Thank you for your interest in contributing to CEYO.
+CEYO is a proprietary protocol research project created and led by **Brian Covarrubias**.
 
-CEYO is an experimental infrastructure prototype exploring cryptographic verification and governance mechanisms for AI systems.
+The public repository is available for inspection, technical review, issue reporting, interoperability discussion, and controlled collaboration. Publication does **not** grant permission to reuse or commercialize the code or specifications beyond the rights expressly stated in `LICENSE`.
 
-## Ways to Contribute
+## Issues and technical review
 
-Contributions may include:
+Issues are welcome for:
 
-• Improvements to documentation  
-• Clarifications to protocol specifications  
-• Reference implementation improvements  
-• Security reviews  
-• Artifact verification tooling
+- protocol ambiguities;
+- specification errors;
+- security findings;
+- interoperability concerns;
+- documentation defects;
+- reproducible implementation bugs;
+- conformance-test proposals.
 
-## Contribution Process
+Security vulnerabilities should be reported privately according to `SECURITY.md`.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+## Code contributions
 
-Please ensure:
+External code contributions are not accepted by default under an implied open-source inbound license.
 
-• Documentation changes remain clear and concise
-• Code follows consistent formatting
-• New functionality includes explanation or examples
+Before submitting a pull request that contains substantive code, specification text, schemas, cryptographic design, or other potentially protectable material, obtain written confirmation that the contribution can be accepted under terms compatible with CEYO's proprietary licensing and IP model.
 
-## Pull Request Guidelines
+Pull requests submitted without prior agreement may be closed without merging.
 
-Pull requests should include:
+## Protocol changes
 
-• Clear description of the change
-• Motivation for the modification
-• Documentation updates when applicable
+Changes to normative protocol behavior require explicit review because they can affect interoperability and evidentiary meaning.
 
-Large architectural changes should first be discussed through an issue.
+Examples include:
 
-## Design Philosophy
+- artifact fields or signed scope;
+- canonicalization rules;
+- hashing or signature suites;
+- key and trust-reference semantics;
+- transparency-log behavior;
+- verification outcomes;
+- policy-binding semantics;
+- version compatibility.
 
-CEYO follows several guiding principles:
+Large changes should begin as an issue describing:
 
-• Model neutrality  
-• Cryptographic verifiability  
-• Deterministic artifact generation  
-• Minimal operational coupling  
-• Independent verification
+1. the problem;
+2. the proposed protocol change;
+3. security and compatibility effects;
+4. migration implications;
+5. required test vectors or conformance updates.
 
-Contributions should respect these principles.
+## Design principles
 
-## Code of Conduct
+Contributions and review should preserve:
 
-By participating in this project you agree to follow the project's Code of Conduct.
+- deterministic verification;
+- model neutrality;
+- explicit trust boundaries;
+- minimal dependence on the originating system;
+- constrained disclosure;
+- protocol-version discipline;
+- precise distinction between implemented and planned guarantees;
+- clear evidentiary limitations.
+
+## Authorship and project authority
+
+CEYO was conceived and is directed by Brian Covarrubias. Accepted contributions do not alter project ownership, authorship, or licensing except through an explicit written agreement.
+
+See `LICENSE` for the governing repository terms.
