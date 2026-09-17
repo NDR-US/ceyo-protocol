@@ -1,42 +1,44 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-If you discover a security vulnerability related to the CEYO reference implementation or documentation, please report it responsibly.
+Please report security vulnerabilities privately to:
 
-Send vulnerability reports to:
+**security@ceyo.ai**
 
-security@ceyo.dev
+Include, where possible:
 
-Please include:
+- a clear description of the issue;
+- affected protocol or implementation component;
+- reproduction steps;
+- proof-of-concept material;
+- likely security or evidentiary impact;
+- any suggested mitigation.
 
-• A clear description of the vulnerability  
-• Steps required to reproduce the issue  
-• Any relevant proof-of-concept code  
-• Potential impact of the vulnerability
-
-We aim to acknowledge reports within **72 hours**.
+Please do not publicly disclose a vulnerability before there has been a reasonable opportunity to investigate and remediate it.
 
 ## Scope
 
-This repository contains a **reference implementation and conceptual architecture** for evidentiary infrastructure in AI systems.
+This repository contains the canonical public CEYO protocol specification and reference implementation.
 
-Security considerations primarily relate to:
+Relevant security areas include:
 
-• Artifact integrity  
-• Cryptographic verification mechanisms  
-• Key management practices  
-• Artifact schema validation
+- artifact integrity and signed scope;
+- canonicalization determinism;
+- cryptographic signature verification;
+- key handling and fingerprint resolution;
+- schema validation;
+- append-only storage behavior;
+- transparency-log checkpoints and inclusion proofs;
+- protocol-version and downgrade behavior;
+- trust-boundary and verifier inconsistencies.
 
-Operational deployments should implement additional protections such as:
+## Current maturity
 
-• Hardware Security Modules (HSM)
-• Secure key rotation policies
-• Trusted key registries
-• Environment isolation
+CEYO is an early-stage reference architecture and is **not** a production security certification.
 
-## Responsible Disclosure
+Production deployment would require controls appropriate to the deployment context, including independent cryptographic/security review, hardened key custody, authenticated trust configuration, monitoring, operational incident response, conformance testing, and appropriate legal/institutional review.
 
-Please do not publicly disclose vulnerabilities until they have been reviewed and addressed.
+## Project authority
 
-We appreciate responsible disclosure and collaboration in improving the security of the CEYO architecture.
+CEYO is created and led by Brian Covarrubias. Security review, external testing, and vulnerability reports are encouraged, but external reviewers and development tools are not project authors or IP owners by virtue of their review activity.
