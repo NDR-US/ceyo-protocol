@@ -1,7 +1,16 @@
-All Rights Reserved
-
 Copyright © 2026 Brian Covarrubias
+All rights reserved.
 
-This repository contains experimental research code and architectural materials
-that may not be reused, redistributed, or commercialized without explicit
-written permission from the author.
+CEYO was conceived and is directed by Brian Covarrubias.
+
+This repository contains proprietary protocol specifications, schemas, reference implementation code, verification tooling, documentation, research materials, and related intellectual property associated with the CEYO evidentiary infrastructure project.
+
+The repository is publicly viewable for evaluation, technical review, interoperability discussion, and controlled collaboration. Public access does not grant an open-source license.
+
+No license is granted to copy, reproduce, modify, redistribute, sublicense, create derivative systems from, commercialize, or otherwise use any portion of this repository except with explicit prior written permission from the copyright holder.
+
+Access to this repository does not grant any express or implied rights under copyright, patent, trademark, trade-secret, or other intellectual-property rights owned or controlled by the rights holder.
+
+NDR-US is the GitHub publishing identity for the project and should not be interpreted as a separate intellectual-property owner unless rights are formally assigned in writing.
+
+Licensing inquiries: contact@ceyo.ai

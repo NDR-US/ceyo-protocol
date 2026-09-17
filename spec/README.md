@@ -1,64 +1,72 @@
-# CEYO Protocol — Specification
+# CEYO Protocol — Canonical Specification Index
 
-This directory is the canonical specification for the CEYO Protocol.
-It defines the protocol standard independently of any implementation.
+This directory is the authoritative public specification for the current CEYO protocol profile.
 
-## Pipeline
+**Creator and project lead: Brian Covarrubias**
 
+The specification defines protocol behavior independently of any particular deployment. Public implementations, demos, and website claims should resolve back to this directory.
+
+## Current normative pipeline
+
+```text
+policy-scoped structured input
+      ↓
+RFC 8785 canonicalization
+      ↓
+SHA-256 digest
+      ↓
+ECDSA P-256 / SHA-256 signature
+      ↓
+CEYO artifact envelope
+      ↓
+optional transparency-log publication
+      ↓
+signed checkpoint / inclusion proof
+      ↓
+independent verification
 ```
-Input / Output
-      ↓
-Canonicalization          spec/pipeline.md §2
-      ↓
-Hash + Signature          spec/pipeline.md §3
-      ↓
-Artifact Envelope         spec/artifact-schema.json
-      ↓
-Transparency Log          spec/transparency-log.md
-      ↓
-Signed Checkpoint         spec/checkpoint.schema.json
-      ↓
-Standalone Verification   spec/verification-protocol.md
-      ↓
-Inclusion Proof Validation spec/transparency-log.md §6
-```
 
-## Specification Documents
+## Normative files
 
-| Document | Description |
-|----------|-------------|
-| [pipeline.md](pipeline.md) | End-to-end pipeline from input capture to inclusion-proof validation |
-| [protocol-specification.md](protocol-specification.md) | Formal protocol specification (fields, algorithms, constants) |
-| [specification.md](specification.md) | Artifact structure and sealing procedure |
-| [transparency-log.md](transparency-log.md) | Transparency log, Merkle tree, checkpoints, inclusion proofs |
-| [architecture.md](architecture.md) | System architecture and component roles |
-| [architecture-diagram.md](architecture-diagram.md) | ASCII architecture diagrams |
-| [artifact-lifecycle.md](artifact-lifecycle.md) | Artifact lifecycle from event to audit |
-| [design-principles.md](design-principles.md) | Core design principles |
-| [security-model.md](security-model.md) | Security guarantees and assumptions |
-| [threat-model.md](threat-model.md) | Threat categories and mitigations |
-| [threat-model-diagram.md](threat-model-diagram.md) | Threat model diagrams |
-| [verification-protocol.md](verification-protocol.md) | Step-by-step verification procedure |
-| [glossary.md](glossary.md) | Terminology definitions |
-| [governance.md](governance.md) | Governance principles and acceptable use |
+| File | Role |
+|---|---|
+| `protocol-specification.md` | Current protocol profile, fields, algorithms, and constants |
+| `pipeline.md` | End-to-end processing and verification sequence |
+| `artifact-schema.json` | Canonical artifact-envelope schema |
+| `transparency-log.md` | Merkle log, checkpoints, and inclusion-proof behavior |
+| `checkpoint.schema.json` | Signed-checkpoint schema |
+| `inclusion-proof.schema.json` | Inclusion-proof schema |
+| `architecture.md` | Component boundaries and protocol architecture |
+| `security-model.md` | Security properties, assumptions, and limitations |
+| `threat-model.md` | Threat categories, attack surfaces, and residual risk |
+| `governance.md` | Governance boundaries and use principles |
+| `glossary.md` | Canonical terminology |
+| `status-and-roadmap.md` | Implemented vs experimental vs planned architecture |
 
-## Schemas
+## Relationship to implementation
 
-| Schema | Description |
-|--------|-------------|
-| [artifact-schema.json](artifact-schema.json) | JSON Schema (Draft 2020-12) for sealed artifact envelopes |
-| [checkpoint.schema.json](checkpoint.schema.json) | JSON Schema for signed transparency log checkpoints |
-| [inclusion-proof.schema.json](inclusion-proof.schema.json) | JSON Schema for Merkle inclusion proofs |
+The public reference implementation is in:
 
-## Relationship to Implementation
+- `/ceyo` — sealing, verification, key interfaces, store, transparency log;
+- `/ceyo_verify` — standalone verification components designed to remain independent of the sealing SDK.
 
-The specification in this directory defines the protocol standard.
-The Python packages implement it:
+A conformant implementation must follow the versioned specification and schemas, not merely reproduce README prose.
 
-| Directory | Role |
-|-----------|------|
-| `/ceyo` | Reference implementation (sealing, verification, store, transparency log) |
-| `/ceyo_verify` | Independent verifier (no SDK dependency) |
+## Version discipline
 
-Any conformant implementation must produce and verify artifacts that
-satisfy the schemas and algorithms described here.
+Changes that affect deterministic verification or interoperability require explicit protocol-version treatment. Examples include:
+
+- artifact schema changes;
+- changes to fields covered by the signature;
+- canonicalization changes;
+- digest algorithm changes;
+- signature-suite changes;
+- key-reference or trust-policy semantics;
+- transparency-proof behavior;
+- verification-result semantics.
+
+The project should not introduce a second public CEYO profile implicitly through demos, website tooling, or private R&D code.
+
+## Target architecture
+
+CEYO is intended to evolve beyond the current reference profile. Planned capabilities are documented in `status-and-roadmap.md` and must remain labeled as target architecture until they are specified, implemented, tested, and promoted into a versioned public profile.

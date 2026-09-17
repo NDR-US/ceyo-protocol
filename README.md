@@ -1,299 +1,218 @@
-# CEYO
+# CEYO Protocol
 
-Evidentiary infrastructure prototype for AI systems.
+**Independent evidentiary infrastructure for AI and autonomous systems**
 
-CEYO explores cryptographic verification and governance architecture for autonomous and AI-driven systems. The project focuses on generating neutral, verifiable records that allow independent validation of AI decisions without modifying the underlying model or exposing proprietary system details.
+**Created and led by Brian Covarrubias**  
+**Copyright © 2026 Brian Covarrubias. All rights reserved.**
 
-The goal is to enable trusted oversight, auditing, and verification of AI outcomes through deterministic artifact generation and cryptographic sealing.
+CEYO is a protocol and reference architecture for producing deterministic, cryptographically verifiable evidence artifacts from consequential AI and autonomous-system operations.
 
----
+The project is designed around a narrow institutional question:
 
-## ARCHITECTURE OVERVIEW
+> Can a later reviewer independently verify what record was sealed, under what declared context, and whether that record has changed since sealing — without requiring access to model weights or proprietary system internals?
 
-CEYO operates as a neutral evidentiary layer attached to an AI inference boundary. It captures policy-scoped decision records and produces deterministic, cryptographically sealed artifacts that can be independently verified.
+CEYO provides evidence infrastructure. It does not adjudicate the underlying decision.
 
-AI System Inference
-↓
-Policy-Scoped Capture
-↓
-Deterministic Canonicalization (RFC 8785)
-↓
-SHA-256 Digest Generation
-↓
-Digital Signature (ECDSA-P256)
-↓
-CEYO Artifact Envelope
-↓
-Independent Verification
+## Project status
 
-Independent parties can recompute canonicalization, hashing, and signature validation to confirm artifact integrity without requiring access to model weights or proprietary system internals.
+CEYO is under active development. Documentation distinguishes three states:
 
-This repository contains the protocol specification, reference implementation, and a minimal verification demonstration.
+- **Implemented** — behavior present in the current public reference implementation and testable today.
+- **Experimental** — implemented or explored in research branches or private R&D, but not part of the normative public profile.
+- **Planned / target architecture** — intended infrastructure that has not yet been promoted into the current protocol profile.
 
----
+Future-state language describes the direction of CEYO; it must not be read as a claim that every target capability is already production-ready.
 
-## CORE CONCEPTS
+## Canonical repository role
 
-CEYO is built around several key principles.
+This repository is the **canonical public protocol repository** for CEYO.
 
-**Deterministic Artifact Generation**  
-Records generated from AI decisions must be reproducible and consistent when canonicalized.
+It contains:
 
-**Cryptographic Sealing**  
-Artifacts are hashed and digitally signed so that any alteration becomes detectable.
+- the normative protocol specification in `spec/`;
+- canonical JSON schemas;
+- the Python reference implementation in `ceyo/`;
+- a standalone verifier in `ceyo_verify/`;
+- examples, tests, security documentation, and transparency-log reference components.
 
-**Policy-Scoped Data Capture**  
-Only explicitly declared fields are recorded. Out-of-scope data is excluded by design.
+Other CEYO repositories must not silently redefine the protocol.
 
-**Independent Verification**  
-Third parties can recompute hashes and verify signatures without accessing the original AI system.
+## Current reference profile — implemented
 
-**Model Neutrality**  
-CEYO does not modify, instrument, or interfere with the underlying model.
+The current public reference profile uses:
 
----
+```text
+policy-scoped structured record
+        ↓
+RFC 8785 JSON Canonicalization Scheme
+        ↓
+SHA-256 digest
+        ↓
+ECDSA P-256 / SHA-256 digital signature
+        ↓
+CEYO artifact envelope
+        ↓
+independent verification
+```
 
-## NON-GOALS
+The reference implementation also includes append-only storage primitives and a Merkle-tree transparency log with signed checkpoints and inclusion proofs.
 
-CEYO artifacts are designed to provide cryptographic integrity verification of recorded AI decision artifacts.
+The current canonical artifact schema is:
 
-CEYO does not attempt to:
+- `spec/artifact-schema.json`
 
-• determine whether an AI decision is correct  
-• prove fairness or absence of bias  
-• certify regulatory compliance  
-• enforce governance policies  
-• control or modify AI model behavior  
+The current canonical cryptographic suite is:
 
-CEYO provides tamper-evident artifact records that enable independent verification of recorded decision data.
+- Canonicalization: `RFC8785`
+- Digest: `SHA-256`
+- Signature: `ECDSA-P256-SHA256`
+- Signature encoding: ASN.1 DER
 
----
+Any future change to canonicalization, hashing, signature suites, protected fields, trust semantics, or verification behavior requires an explicit versioned protocol revision.
 
-## CONCEPTUAL WORKFLOW
+## Target architecture — planned direction
 
-CEYO artifacts follow a simple verification pipeline.
+CEYO is intended to evolve beyond basic artifact sealing into a broader evidentiary trust layer:
 
-1. **Record** — Capture policy-scoped data from an AI decision  
-2. **Seal** — Canonicalize the record and generate a cryptographic hash  
-3. **Verify** — Independent parties recompute the hash and validate the signature  
+```text
+AI / autonomous-system event
+        ↓
+governed capture policy
+        ↓
+canonical evidentiary object
+        ↓
+hash + digital signature
+        ↓
+protected protocol / policy / schema context
+        ↓
+trusted-time and transparency evidence
+        ↓
+authenticated key authority + revocation
+        ↓
+custody and constrained-disclosure controls
+        ↓
+independent institutional verification
+```
 
-This workflow creates a tamper-evident record of an AI system’s output that can be validated long after the original decision occurred.
+Target research areas include:
 
----
+- cryptographic binding of capture-policy identity, version, and digest;
+- protected signing of security-relevant artifact metadata;
+- authenticated trust registries and delegated trust domains;
+- hardware-backed KMS/HSM signing;
+- trusted-time evidence;
+- transparency witnesses, signed checkpoints, and anti-equivocation mechanisms;
+- key rotation and revocation with defensible historical semantics;
+- independent multi-implementation verification;
+- protocol conformance vectors and interoperability suites;
+- chain-of-custody and constrained-disclosure workflows.
 
-## ARTIFACT SCHEMA
+See `spec/status-and-roadmap.md` for the implementation/target boundary.
 
-CEYO artifacts follow a structured envelope designed to support deterministic verification, policy-scoped data capture, and long-term auditability.
+## What cryptography establishes
 
-Each artifact envelope contains the captured event body along with metadata describing policy scope, canonicalization rules, and cryptographic integrity fields used to verify authenticity and detect tampering.
+CEYO separates several distinct security functions:
 
-The canonical artifact schema is defined in:
+- **Canonicalization** creates a deterministic byte representation.
+- **Hashing** creates a stable integrity digest and allows tamper comparison.
+- **Digital signatures** bind signed content to the holder of a cryptographic key.
+- **Encryption**, when used in future deployments, protects confidentiality; it is not a substitute for integrity validation.
+- **Trust policy** determines whether a key or authority is recognized for a verification context.
+- **Time / transparency evidence** can strengthen claims about when an artifact or checkpoint existed.
+- **Revocation evidence** supports evaluation of key status under defined historical rules.
 
-spec/artifact-schema.json
+## What CEYO does not claim
 
-The schema specifies the structure of evidentiary artifacts generated by CEYO systems and includes the following core components.
+CEYO does not, by cryptography alone:
 
-**Schema Versioning**  
-Artifacts include a schema version field allowing the artifact format to evolve while maintaining compatibility with previously generated artifacts.
+- determine whether an AI output is correct;
+- prove fairness or absence of bias;
+- certify regulatory compliance;
+- establish the truth or completeness of pre-capture source data;
+- prove that a local timestamp is an independently trusted time assertion;
+- establish legal admissibility or evidentiary sufficiency in a particular proceeding;
+- replace governance, adjudication, human review, or institutional authority.
 
-**Artifact Metadata**  
-Identifiers, timestamps, and event references describing the AI decision being recorded.
+CEYO produces verifiable evidence records, not judgments.
 
-**Policy Scope Definition**  
-Policy identifiers and policy version references defining which fields were permitted to be captured.
+## Repository structure
 
-**Canonicalization Metadata**  
-Declarations describing how the artifact body was normalized prior to hashing.
+```text
+ceyo-protocol/
+├── spec/              # canonical protocol specification and schemas
+├── ceyo/              # public reference implementation
+├── ceyo_verify/       # standalone independent verifier
+├── docs/              # developer and integration guidance
+├── examples/          # reference examples
+├── example_artifact/  # sample CEYO artifacts and verification material
+├── tests/             # protocol/reference implementation tests
+├── scripts/           # development utilities
+├── tools/             # standalone tooling
+├── SECURITY.md
+├── CONTRIBUTING.md
+├── VERSION
+└── README.md
+```
 
-**Cryptographic Integrity Fields**  
-Hash values and digital signatures used to seal the artifact.
-
-**Verification References**  
-References to verification keys or trusted registries used to validate artifact signatures.
-
-Separating the artifact schema into a dedicated specification file allows the schema to evolve independently while keeping repository documentation concise.
-
----
-
-## INSTALLATION
-
-    pip install .
-
-For development (includes ruff, mypy, coverage):
-
-    pip install -e ".[dev]"
-
-This installs the `ceyo` Python package and the `ceyo` CLI command.
-
----
-
-## CLI USAGE
-
-### Seal a record
-
-    ceyo seal example_artifact/sample_record.json --key my_private.pem
-
-### Verify an artifact
-
-    ceyo verify example_artifact/sealed_artifact.json example_artifact/public_key.pem
-
-### Inspect the artifact store
-
-    ceyo store list ceyo_artifacts.db
-    ceyo store verify-chain ceyo_artifacts.db
-
----
-
-## SDK USAGE
+## Minimal SDK example
 
 ```python
 from ceyo import CeyoClient
 from ceyo.keys import LocalKeyProvider
 from ceyo.store import ArtifactStore
 
-# Initialize with persistent keys and an append-only store
 client = CeyoClient(
     key_provider=LocalKeyProvider("keys/private.pem"),
     store=ArtifactStore("artifacts.db"),
 )
 
-# Seal an artifact
 envelope = client.seal({
     "event": {
         "event_id": "evt_001",
         "type": "classification",
         "occurred_at": "2026-03-09T12:00:00Z",
     },
+    "policy": {
+        "id": "example.capture-policy",
+        "version": "1.0",
+    },
     "disclosure_tier": "internal",
 })
 
-# Verify
 result = client.verify(envelope)
 assert result.ok
-
-# Trace decorator — automatically seals an artifact per call
-@client.trace(event_type="inference")
-def predict(text):
-    return model(text)
 ```
 
----
+## Independent verification
 
-## QUICK DEMO
+The verifier checks the artifact against the current protocol profile, including schema validity, deterministic canonicalization, digest comparison, signature validity, and key fingerprint consistency.
 
-CEYO includes a minimal end-to-end demonstration.
+Where transparency evidence is supplied, inclusion proofs and signed checkpoints can be evaluated independently of the sealing path.
 
-### Step 1 — Seal the Artifact
+## Protocol authority
 
-    ceyo seal example_artifact/sample_record.json --key example_artifact/private_key.pem -o example_artifact/sealed_artifact.json
+Normative protocol behavior is defined by the versioned material in `spec/` and the corresponding schemas. README text, website copy, demos, and private research documents are explanatory and must remain consistent with that source of truth.
 
-Or use the legacy script: `python3 seal_artifact.py`
+## Project ecosystem
 
-### Step 2 — Verify the Artifact
+- `NDR-US/ceyo-protocol` — canonical public protocol and reference implementation
+- `NDR-US/ceyo-core` — private R&D, target architecture, security/governance/legal/product research
+- `NDR-US/ceyo-decision-verification-demo` — public demonstration of the canonical workflow
+- `NDR-US/ceyo-site` — public presentation and institutional explanation
+- `NDR-US/ndr-us` — project/research publishing identity
 
-    ceyo verify example_artifact/sealed_artifact.json example_artifact/public_key.pem
+## Security
 
-Expected output:
+This is an early-stage reference architecture, not a production security certification. Production use would require deployment-specific threat modeling, independent cryptographic review, hardened key custody, operational controls, conformance testing, and appropriate institutional/legal review.
 
-    PASS: Schema valid
-    PASS: Hash matches
-    PASS: Signature valid
-    PASS: Key fingerprint matches
+See `SECURITY.md`, `spec/security-model.md`, and `spec/threat-model.md`.
 
-    Verification PASSED
+## Authorship and intellectual property
 
-### Optional: Run the full demonstration automatically
+CEYO was conceived and is directed by **Brian Covarrubias**.
 
-    python3 demo.py
+This repository is published through the NDR-US GitHub identity. Copyright and licensing are governed by `LICENSE`; publication does not transfer ownership or grant rights beyond those expressly stated there.
 
----
+## License
 
-## REPOSITORY STRUCTURE
-
-    ceyo-protocol/
-    ├── ceyo/                    # Python SDK package
-    │   ├── cli.py               # CLI entry point (ceyo seal/verify/store)
-    │   ├── client.py            # CeyoClient with @trace decorator
-    │   ├── crypto.py            # Canonicalization, hashing, base64url
-    │   ├── keys.py              # Key providers (local PEM, in-memory, registry)
-    │   ├── schema.py            # JSON Schema validation
-    │   ├── seal.py              # Artifact sealing
-    │   ├── store.py             # SQLite append-only store with hash chaining
-    │   └── verify.py            # Artifact verification
-    ├── docs/                    # Protocol documentation
-    │   ├── architecture.md      # Architecture overview
-    │   ├── protocol-specification.md  # Formal protocol spec
-    │   ├── developer-integration.md   # SDK integration guide
-    │   ├── verification-walkthrough.md # Step-by-step verification
-    │   ├── security-model.md    # Security guarantees and boundaries
-    │   ├── threat-model.md      # Threat analysis
-    │   ├── governance.md        # Governance and use policy
-    │   └── glossary.md          # Terminology reference
-    ├── spec/                    # Formal schemas
-    │   └── artifact-schema.json # Canonical artifact envelope schema
-    ├── examples/                # SDK usage examples
-    ├── scripts/                 # Utility scripts
-    ├── tests/                   # Test suite
-    ├── tools/                   # Standalone CLI tools
-    ├── example_artifact/        # Sample records and keys
-    ├── pyproject.toml           # Package configuration
-    └── demo.py                  # End-to-end demo runner
-
----
-
-## VERIFICATION
-
-The `ceyo verify` command and `verify_artifact()` function perform:
-
-• JSON Schema envelope validation
-• RFC 8785 canonicalization
-• SHA-256 hash verification
-• ECDSA-P256 signature validation
-• Public key fingerprint matching
-
----
-
-## SECURITY MODEL
-
-Verification confirms:
-
-• artifact integrity — the body has not been modified since sealing
-• signature validity — the artifact was signed by the holder of the declared key
-• canonicalization reproducibility — independent verifiers produce identical hashes
-
-Verification does **not** confirm:
-
-• AI correctness
-• fairness or absence of bias
-• regulatory compliance
-• legal admissibility
-
-CEYO produces verifiable evidence records, not judgments. See `docs/security-model.md` for the full security model and `docs/threat-model.md` for the threat analysis.
-
----
-
-## PROTOCOL STATUS
-
-CEYO is an early-stage prototype exploring evidentiary infrastructure for AI systems.
-
-The repository includes:
-
-• protocol specification and documentation
-• artifact schema (JSON Schema)
-• reference implementation (Python SDK + CLI)
-• verification tooling
-• end-to-end demonstration
-
-CEYO is not a production security system and should not be used for operational environments.
-
----
-
-## PROJECT WEBSITE
-
-https://ndr-us.github.io/ceyo-site/
-
----
-
-## LICENSE
-
-All Rights Reserved. See LICENSE file.
+All Rights Reserved. See `LICENSE`.

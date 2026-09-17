@@ -5,16 +5,16 @@ build-backend = "hatchling.build"
 [project]
 name = "ceyo"
 version = "0.1.0"
-description = "Evidentiary infrastructure prototype for AI systems"
+description = "Reference implementation of the CEYO evidentiary protocol for AI systems"
 readme = "README.md"
 license = "LicenseRef-Proprietary"
 authors = [
-    { name = "Brian Covarrubias", email = "bsecure.cov@gmail.com" },
+    { name = "Brian Covarrubias", email = "contact@ceyo.ai" },
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "cryptography",
-    "rfc8785",
+    "cryptography>=41,<44",
+    "rfc8785>=0.1,<2",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +23,10 @@ dev = [
     "mypy",
     "coverage",
 ]
+
+[project.urls]
+Homepage = "https://ceyo.ai"
+Repository = "https://github.com/NDR-US/ceyo-protocol"
 
 [project.scripts]
 ceyo = "ceyo.cli:main"

@@ -1,203 +1,209 @@
 # CEYO Protocol Specification
 
-## Overview
+**Status: public draft profile 0.1.0-draft**  
+**Creator and project lead: Brian Covarrubias**
 
-The CEYO protocol defines a deterministic procedure for producing cryptographically verifiable records of AI decision events.
+## 1. Purpose
 
-A CEYO artifact represents a structured envelope containing a policy-scoped record of a decision event along with canonicalization metadata and cryptographic integrity fields.
+The CEYO protocol defines a deterministic procedure for producing and independently verifying cryptographically sealed evidence artifacts associated with AI and autonomous-system operations.
 
-The protocol enables independent verification of artifact integrity without requiring access to the originating AI system.
+The current public profile is intentionally narrow. It defines:
 
-The protocol defines procedures for:
+- artifact-envelope structure;
+- deterministic canonicalization of the artifact body;
+- SHA-256 digest generation;
+- ECDSA P-256 / SHA-256 signing;
+- public-key fingerprint references;
+- independent artifact verification;
+- companion transparency-log evidence defined elsewhere in `spec/`.
 
-- artifact construction
-- canonicalization
-- digest generation
-- signature creation
-- verification
+CEYO does not determine whether an underlying AI output is correct, fair, lawful, complete, or institutionally sufficient.
 
-The protocol does not attempt to evaluate the correctness or fairness of AI decisions.
+## 2. Artifact envelope
 
-Its purpose is limited to producing tamper-evident decision records.
+The canonical machine-readable schema is `spec/artifact-schema.json`.
 
----
+A current-profile envelope contains:
 
-## Artifact Structure
-
-A CEYO artifact consists of a structured envelope containing the following components:
-
-- artifact metadata
-- captured decision record
-- canonicalization metadata
-- cryptographic integrity fields
-- verification references
-
-The canonical JSON schema defining the artifact structure is located at:
-
-`spec/artifact-schema.json`
-
-Implementations must conform to this schema when generating artifacts.
-
-The envelope contains the following top-level fields:
-
-| Field | Type | Description |
+| Field | Meaning | Signed in profile 0.1 |
 |---|---|---|
-| `product` | string | Protocol identifier. Must be `"CEYO"`. |
-| `envelope_version` | string | Envelope format version. |
-| `artifact_schema` | object | Schema name and version governing the artifact body. |
-| `artifact_id` | string | Unique artifact identifier. Must match `^ceyo_art_`. |
-| `created_at` | string | ISO 8601 UTC timestamp of artifact creation. |
-| `body` | object | Policy-scoped decision record. |
-| `canonicalization` | object | Canonicalization scheme, version, and scope. |
-| `integrity` | object | Cryptographic hash and digital signature. |
-| `key_reference` | object | Signing key identifier and public key fingerprint. |
+| `product` | Protocol identifier (`CEYO`) | No |
+| `envelope_version` | Envelope format version | No |
+| `artifact_schema` | Declared body-schema identity/version | No |
+| `artifact_id` | Artifact identifier | No |
+| `created_at` | Artifact-creation timestamp asserted by the sealing process | No |
+| `body` | Structured evidentiary record | **Yes** |
+| `canonicalization` | Canonicalization metadata | No |
+| `integrity` | Digest and signature material | Derived / signature field |
+| `key_reference` | Declared signing-key reference and fingerprint | No |
 
-All fields are required.
+### 2.1 Signed-scope rule
 
-The `integrity` object contains:
+**Profile 0.1 signs only `canonical(body)`.**
 
-- `hash` — algorithm identifier (`SHA-256`), base64url-encoded digest, and coverage descriptor
-- `sig` — algorithm identifier (`ECDSA-P256-SHA256`), DER format, base64url-encoded signature, and coverage descriptor
+Therefore, successful signature verification establishes integrity/authenticity properties for the canonicalized `body` under the supplied verification key. It does **not** by itself establish cryptographic integrity of unsigned envelope metadata.
 
-The `key_reference` object contains:
+Verifiers and downstream systems MUST NOT treat `artifact_id`, `created_at`, `artifact_schema`, `canonicalization`, or `key_reference` as signed merely because those fields appear in a verified envelope.
 
-- `registry` — key registry identifier
-- `key_id` — key identifier within the registry
-- `public_key_fingerprint` — SHA-256 digest of the public key in DER-encoded SubjectPublicKeyInfo format, base64url-encoded
+A future protocol profile is expected to expand the protected scope to security-relevant protocol, policy, schema, key/trust, and temporal context. That future profile is not implied by this one.
 
----
+## 3. Artifact body
 
-## Canonicalization
+The body is a structured JSON object representing the record selected for evidentiary capture.
 
-Before hashing, the artifact body must be converted into a deterministic canonical representation.
+The reference implementation supports event fields and may include declared policy, disclosure, capture, and environment context.
 
-CEYO uses RFC 8785 JSON Canonicalization Scheme (JCS).
+A declared `policy` object in profile 0.1 is data inside the signed body and is therefore integrity-protected when present. However, the current profile does not independently establish that:
 
-Canonicalization ensures that identical logical records always produce identical byte representations.
+- the policy was institutionally authorized;
+- the policy was the policy actually enforced before capture;
+- the policy definition has been retrieved from an authenticated registry;
+- the captured record is complete with respect to a real-world event.
 
-This property allows independent verifiers to recompute hashes reliably.
+Those are target-architecture concerns tracked in `status-and-roadmap.md`.
 
-RFC 8785 specifies:
+## 4. Canonicalization
 
-- Lexicographic ordering of object member names by Unicode code point
-- No whitespace between tokens
-- Deterministic number serialization
-- UTF-8 encoding of the output
+The current profile requires **RFC 8785 JSON Canonicalization Scheme (JCS)** for the artifact body.
 
-Canonicalization is applied to the `body` field only. The envelope structure, integrity fields, and key reference are not canonicalized.
-
-If RFC 8785 is unavailable, implementations may temporarily use deterministic JSON serialization with sorted keys and fixed separators, though RFC 8785 is the preferred canonicalization method.
-
----
-
-## Digest Generation
-
-After canonicalization, the canonical byte sequence is hashed using SHA-256.
-
-```
-digest = SHA-256(canonicalized_body)
+```text
+canonical_body = RFC8785(body)
 ```
 
-The resulting digest becomes the artifact integrity hash.
+A conformant implementation MUST use RFC 8785 semantics when the envelope declares `RFC8785`.
 
-This digest uniquely represents the canonicalized record content.
+A deterministic JSON fallback that is not RFC 8785 conformant MUST NOT be labeled `RFC8785` and is not interoperable with the current canonical profile unless a separately versioned scheme explicitly defines that behavior.
 
-Any modification to the artifact body will produce a different digest.
+Canonicalization is applied to `body` only in profile 0.1.
 
-The digest is a 32-byte (256-bit) value, encoded as a base64url string without padding and stored in `integrity.hash.value_b64u`.
+## 5. Digest generation
 
----
+The digest is:
 
-## Signature Generation
-
-The artifact digest is signed using a cryptographic signing key.
-
-The protocol uses:
-
-- Algorithm: ECDSA with NIST P-256 curve (secp256r1)
-- Algorithm identifier: `ECDSA-P256-SHA256`
-
-The signature is generated over the digest using prehashed SHA-256.
-
-```
-signature = Sign(private_key, digest)
+```text
+digest = SHA-256(canonical_body)
 ```
 
-The signature is DER-encoded and stored as a base64url string without padding in `integrity.sig.value_b64u`.
+The 32-byte digest is encoded as base64url without padding and stored in:
 
-The public key fingerprint is computed as:
+`integrity.hash.value_b64u`
 
+The current profile identifies the digest algorithm as `SHA-256`.
+
+## 6. Signature generation
+
+The current profile uses:
+
+- Curve: NIST P-256 / `secp256r1`
+- Signature: ECDSA
+- Digest: SHA-256
+- Protocol identifier: `ECDSA-P256-SHA256`
+- Signature encoding: ASN.1 DER
+
+The reference implementation signs the already-computed SHA-256 digest using ECDSA with prehashed SHA-256 semantics:
+
+```text
+signature = ECDSA-P256-SHA256(private_key, digest)
 ```
+
+The signature is stored in `integrity.sig.value_b64u` using base64url without padding.
+
+## 7. Key fingerprint
+
+The public-key fingerprint is:
+
+```text
 fingerprint = SHA-256(DER(SubjectPublicKeyInfo(public_key)))
 ```
 
-The signature and key reference are embedded in the artifact envelope.
+The digest is base64url-encoded without padding and recorded in `key_reference.public_key_fingerprint.value_b64u`.
 
----
+A matching fingerprint establishes correspondence between the supplied key and the declared fingerprint. It does **not** by itself establish institutional authorization of that key. Authorization requires an external trust basis or future authenticated trust-registry mechanism.
 
-## Verification Procedure
+## 8. Verification procedure
 
-Artifact verification consists of the following steps.
+A profile-0.1 verifier performs, at minimum:
 
-1. Validate artifact structure against the JSON schema defined in `spec/artifact-schema.json`.
+1. Validate the envelope structure against `spec/artifact-schema.json`.
+2. Confirm the declared canonicalization scheme is supported by the verifier.
+3. Canonicalize `body` using RFC 8785.
+4. Recompute `SHA-256(canonical(body))`.
+5. Compare the recomputed digest with `integrity.hash.value_b64u`.
+6. Load the supplied P-256 public key.
+7. Confirm the public-key fingerprint against `key_reference.public_key_fingerprint` when fingerprint checking is enabled.
+8. Verify the ECDSA P-256 signature over the recomputed digest using prehashed SHA-256 semantics.
 
-2. Canonicalize the artifact body using the declared canonicalization scheme (RFC 8785).
+A successful result means the signed body matches the body that was signed by the holder of the supplied key, subject to the verifier's key/trust assumptions.
 
-3. Recompute the SHA-256 digest over the canonical byte sequence.
+## 9. Time semantics
 
-4. Compare the recomputed digest against the recorded digest in `integrity.hash.value_b64u`. If the values do not match, verification fails.
+`created_at` is an envelope timestamp asserted by the sealing process.
 
-5. Validate the digital signature in `integrity.sig.value_b64u` using the referenced public key and ECDSA with prehashed SHA-256. If signature validation fails, verification fails.
+Because `created_at` is outside the profile-0.1 signed body and is not backed by an independent trusted timestamp mechanism, profile 0.1 does **not** claim that cryptographic verification alone proves the real-world time at which the artifact existed.
 
-6. Confirm the public key fingerprint by computing `SHA-256(DER(SubjectPublicKeyInfo(public_key)))` and comparing against `key_reference.public_key_fingerprint.value_b64u`. If the values do not match, verification fails.
+Transparency checkpoints can provide additional evidence about log state. Stronger temporal guarantees are target architecture.
 
-Verification succeeds if all checks pass.
+## 10. Transparency evidence
 
-Verification requires only:
+The CEYO transparency-log profile is specified separately in `transparency-log.md`.
 
-- The sealed artifact envelope (JSON)
-- The public verification key
-- An RFC 8785 canonicalization implementation
-- Standard SHA-256 and ECDSA P-256 libraries
+Reference components support:
 
-No access to the originating AI system or proprietary infrastructure is required.
+- Merkle-tree append-only logging;
+- signed checkpoints;
+- artifact inclusion proofs;
+- independent proof verification.
 
----
+A transparency inclusion proof demonstrates inclusion relative to a particular root/checkpoint under the verification assumptions of that checkpoint. It is not, by itself, proof that the underlying event was true.
 
-## Security Considerations
+## 11. Security properties and boundaries
 
-CEYO artifacts provide tamper-evident integrity verification of recorded decision events.
+Depending on the evidence supplied and verifier configuration, profile 0.1 can support verification of:
 
-Verification confirms that:
+- schema/structural validity;
+- deterministic body representation;
+- body-digest integrity;
+- signature validity;
+- correspondence to a supplied P-256 key;
+- declared public-key fingerprint consistency;
+- transparency inclusion where applicable.
 
-- the artifact content has not been modified
-- the artifact was signed by the expected key
-- the canonicalization and hashing processes are reproducible
+Profile 0.1 does not by itself establish:
 
-Verification does not guarantee:
+- pre-capture truth or completeness;
+- AI correctness or fairness;
+- regulatory compliance;
+- authorization of a key without an external trust basis;
+- trusted real-world time from `created_at` alone;
+- integrity of unsigned envelope metadata;
+- legal admissibility or evidentiary sufficiency.
 
-- correctness of the AI decision
-- fairness or absence of bias
-- regulatory compliance
-- legal admissibility
+See `security-model.md`, `threat-model.md`, and `status-and-roadmap.md`.
 
-CEYO artifacts represent verifiable evidence records, not judgments.
+## 12. Cryptographic confidentiality
 
-Signing key management is the responsibility of the system operator. Keys should be protected using appropriate key management infrastructure such as hardware security modules or managed key services.
+Encryption is not part of the mandatory profile-0.1 sealing/verification pipeline.
 
-A comprehensive threat model is provided in the companion document `docs/threat-model.md`.
+Future deployment profiles may use encryption for confidential artifacts, selective disclosure, or protected transport/storage. Encryption is a confidentiality mechanism; it does not replace canonicalization, hashing, digital signatures, trust evaluation, or transparency evidence.
 
----
+## 13. Versioning and protocol evolution
 
-## Protocol Scope
+Any change that affects deterministic verification or interoperability requires explicit protocol-version treatment, including changes to:
 
-The CEYO protocol defines artifact construction and verification rules.
+- signed/protected scope;
+- artifact schema;
+- canonicalization rules;
+- digest algorithms;
+- signature suites;
+- trust/key-reference semantics;
+- temporal evidence;
+- transparency-proof semantics;
+- verification-result semantics.
 
-It does not define:
+No website, demo, private R&D implementation, or explanatory document may silently create an alternative CEYO protocol profile.
 
-- AI model behavior
-- governance policy enforcement
-- auditing frameworks
-- regulatory compliance systems
+## 14. Target architecture
 
-The protocol focuses exclusively on deterministic artifact generation and verification.
+The broader intended architecture — protected policy/schema context, authenticated trust registries, trusted time, revocation, hardware-backed key custody, constrained disclosure, anti-equivocation mechanisms, and multi-implementation conformance — is documented in `status-and-roadmap.md`.
+
+Those features remain planned or experimental until promoted into a versioned public profile.
