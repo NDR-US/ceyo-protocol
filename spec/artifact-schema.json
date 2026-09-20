@@ -57,7 +57,8 @@
       ],
       "properties": {
         "scheme": {
-          "type": "string"
+          "type": "string",
+          "enum": ["RFC8785", "deterministic-json-fallback"]
         },
         "version": {
           "type": "string"

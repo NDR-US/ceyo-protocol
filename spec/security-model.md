@@ -16,21 +16,21 @@ The CEYO architecture is designed to provide the following security guarantees.
 
 Artifact Integrity
 
-Once an artifact has been sealed, any modification to its contents must be detectable.
+After sealing, modification to the signed artifact body is detectable when a verifier recomputes its digest and validates its signature. This profile does not cryptographically protect every envelope field.
 
 Artifact integrity is enforced through deterministic canonicalization combined with cryptographic hashing and digital signatures.
 
-If any artifact field is altered after sealing, verification will fail.
+Changing an unsigned envelope field can leave body hash and signature verification unchanged. Such fields must not be treated as authenticated solely because the body signature passes.
 
 ⸻
 
 Artifact Authenticity
 
-Artifacts must be verifiably associated with the entity that generated the signature.
+A valid signature establishes that the artifact body was signed using the private key corresponding to the supplied public key. Establishing who controls that key requires an authenticated trust basis.
 
-Verification procedures confirm that the artifact was signed by the declared signing key.
+Verification checks the signed body against the supplied verification key. A matching declared fingerprint does not independently prove the signer's institutional identity or authorization.
 
-Authenticity ensures that artifact records cannot be forged without access to the signing key.
+An attacker with access to a trusted signing key can produce apparently valid signed bodies. Key custody, authorization, revocation, and authenticated public-key distribution remain separate responsibilities.
 
 ⸻
 
@@ -109,11 +109,11 @@ CEYO defines clear boundaries around the guarantees it provides.
 
 What CEYO Protects
 
-CEYO protects the integrity and authenticity of artifact records after they have been generated and sealed.
+The public profile protects the integrity and signature authenticity of the canonicalized artifact body. Unsigned envelope metadata and the truth of pre-capture source data fall outside this cryptographic guarantee.
 
 Verification can confirm:
-	•	artifact contents have not been modified
-	•	the artifact was signed by the declared key
+	•	the signed artifact body matches the signature under the supplied public key
+	•	the signature validates under the supplied key; the key's real-world authority must be established separately
 	•	the artifact follows the declared schema
 
 ⸻
@@ -137,9 +137,9 @@ Successful verification of an artifact confirms the following properties.
 
 The artifact body has not been modified since sealing.
 
-The artifact signature corresponds to the declared signing key.
+The signature validates against the supplied public key; a matching fingerprint does not independently establish who authorized or controls the key.
 
-The artifact structure conforms to the declared schema version.
+The artifact structure passed the verifier's selected structural validation rules. Because the current profile does not sign the envelope's schema identifier, the declared version alone is not authoritative.
 
 The artifact canonicalization procedure produces the expected hash value.
 
@@ -194,6 +194,6 @@ Summary
 
 CEYO provides a cryptographically verifiable evidentiary infrastructure for recording AI system events.
 
-The system guarantees artifact integrity and authenticity through deterministic canonicalization and cryptographic sealing while allowing independent verification without access to the original AI system.
+The current public profile supports independent verification of the signed body under an externally supplied public key. Institutional attribution, unsigned metadata, complete capture, and decision correctness require separate evidence and controls.
 
 The security model defines the boundaries of these guarantees and the assumptions required for artifact verification to remain reliable.

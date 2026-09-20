@@ -487,6 +487,13 @@ class TestNegativeCases(TestCase):
         self.assertFalse(result.ok)
         self.assertTrue(any("fingerprint" in m.lower() for m in result.failed))
 
+    def test_unknown_canonicalization_scheme_rejected(self):
+        env = self._sealed()
+        env["canonicalization"]["scheme"] = "unrecognized-json-profile"
+        result = verify_artifact(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("canonicalization" in msg.lower() for msg in result.failed))
+
     def test_no_fingerprint_check_skips_that_step(self):
         env = self._sealed()
         # Inject garbage fingerprint but disable the check
@@ -1017,6 +1024,13 @@ class TestStandaloneVerifier(TestCase):
         result = standalone_verify(env, b"not-a-pem")
         self.assertFalse(result.ok)
         self.assertTrue(any("Key load" in m for m in result.failed))
+
+    def test_unknown_canonicalization_scheme_rejected(self):
+        env = self._env()
+        env["canonicalization"]["scheme"] = "unrecognized-json-profile"
+        result = standalone_verify(env, self.kp.get_public_key_pem())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("canonicalization" in msg.lower() for msg in result.failed))
 
     def test_deterministic_json_fallback(self):
         """Verifier handles deterministic-json-fallback scheme."""

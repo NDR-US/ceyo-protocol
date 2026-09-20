@@ -69,7 +69,10 @@ def _canonicalize(body: Any, scheme: str) -> bytes:
             )
         return rfc8785.dumps(body)
 
-    # Deterministic JSON fallback (matches ceyo.crypto.canonicalize fallback)
+    if scheme != "deterministic-json-fallback":
+        raise RuntimeError(f"Unsupported canonicalization scheme: {scheme!r}")
+
+    # Legacy compatibility only: never interpret an unknown scheme as fallback.
     return json.dumps(
         body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
