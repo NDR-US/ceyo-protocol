@@ -54,6 +54,9 @@ def _canonicalize_for_verify(body: Any, scheme: str) -> bytes:
             )
         return rfc8785.dumps(body)
 
+    if scheme != "deterministic-json-fallback":
+        raise RuntimeError(f"Unsupported canonicalization scheme: {scheme!r}")
+
     import json
     return json.dumps(
         body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
