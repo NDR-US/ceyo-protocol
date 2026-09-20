@@ -55,7 +55,7 @@ ENVELOPE_SCHEMA: dict[str, Any] = {
             "type": "object",
             "required": ["scheme", "version", "scope"],
             "properties": {
-                "scheme": {"type": "string"},
+                "scheme": {"type": "string", "enum": ["RFC8785", "deterministic-json-fallback"]},
                 "version": {"type": "string"},
                 "scope": {"type": "string", "const": "body"},
             },
