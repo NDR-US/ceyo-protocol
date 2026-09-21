@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-"""
-CEYO Protocol — Sealing tool
+"""Generate a protocol-v2 CEYO example artifact.
 
-Reads:  example_artifact/sample_record.json
-Writes: example_artifact/sealed_artifact.json
-        example_artifact/public_key.pem
-        example_artifact/private_key.pem  (should be ignored by .gitignore)
+Reads ``example_artifact/sample_record.json`` and writes a sealed artifact plus
+local public/private key files for development use. The private key path is
+expected to remain ignored by version control.
 
-Output envelope follows spec/artifact-schema.json:
-  body → canonicalization → integrity → key_reference
-
-Signature: ECDSA P-256 over SHA-256(canonical(body))
-Canonicalization: RFC 8785 (JCS) if available; otherwise a deterministic fallback.
+Protocol v2 signs SHA-256(RFC8785-or-declared-canonicalization(protected)) via
+the normal ``ceyo.seal.seal_body`` implementation. The generated artifact has
+the top-level shape ``{protected, integrity, receipts}``.
 """
 
 from __future__ import annotations
@@ -19,7 +15,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ceyo.crypto import b64u, b64u_decode, canonicalize, sha256
 from ceyo.keys import LocalKeyProvider
 from ceyo.seal import seal_body
 
@@ -39,18 +34,17 @@ def main() -> None:
         raise FileNotFoundError(f"Missing {RECORD_PATH}. Create it first.")
 
     body = json.loads(RECORD_PATH.read_text(encoding="utf-8"))
-
     key_provider = LocalKeyProvider(PRIVKEY_PATH, PUBKEY_PATH)
-    sealed = seal_body(body, key_provider, validate=False)
+    artifact = seal_body(body, key_provider, validate=False)
 
     SEALED_PATH.write_text(
-        json.dumps(sealed, indent=2, ensure_ascii=False) + "\n",
+        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
 
     print(f"Wrote: {SEALED_PATH}")
     print(f"Wrote: {PUBKEY_PATH}")
-    print(f"Private key (should be ignored): {PRIVKEY_PATH}")
+    print(f"Private key (should remain uncommitted): {PRIVKEY_PATH}")
 
 
 if __name__ == "__main__":

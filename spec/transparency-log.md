@@ -1,321 +1,233 @@
 # CEYO Transparency Log Specification
 
-Version: 1.0-draft
-Status: Draft
-
----
+Version: 2.0-draft  
+Status: Prototype
 
 ## 1. Purpose
 
-The CEYO Transparency Log is an append-only Merkle tree that records the
-hash of every sealed artifact. It provides two properties that the
-artifact store alone cannot:
+The CEYO reference transparency component is a local Merkle inclusion log. It records a stable digest for each artifact, can produce Merkle inclusion proofs, and can sign checkpoints describing a particular tree size/root.
 
-- **Global consistency:** any party with the log's public key can verify
-  that a signed checkpoint covers a specific set of artifacts.
-- **Efficient membership:** a logarithmic-size inclusion proof demonstrates
-  that one artifact hash is in the tree without revealing any others.
+It is useful for demonstrating independently verifiable membership in a signed tree state.
 
-The log is complementary to, and independent of, the `ArtifactStore` hash
-chain. The store chains artifact envelopes; the log anchors artifact hashes
-in a Merkle tree that can be publicly audited.
+It is **not**, by itself, a complete globally consistent or globally append-only transparency service. Inclusion proofs and signed checkpoints do not prevent a log operator from maintaining multiple views, replaying an older valid checkpoint, or rolling back local state. Stronger deployment profiles need additional mechanisms such as consistency proofs, witnesses, monitors, gossip, or independently anchored checkpoints.
 
----
+## 2. Transparency canonicalization profile
 
-## 2. Definitions
+The current reference transparency format fixes canonicalization to **RFC 8785**.
 
-| Term | Definition |
-|------|------------|
-| **Artifact hash** | `SHA-256(canonical(envelope))` — the authoritative digest of a sealed artifact |
-| **Leaf hash** | `SHA-256(0x00 ‖ artifact_hash)` — the Merkle leaf value |
-| **Node hash** | `SHA-256(0x01 ‖ left ‖ right)` — an internal Merkle node |
-| **Root hash** | The single hash at the top of the Merkle tree |
-| **Checkpoint** | A signed record of `(tree_size, root_hash, created_at)` |
-| **Inclusion proof** | A sibling-hash path from a leaf to the root |
-| **Log entry** | A record of `(seq, artifact_id, artifact_hash, leaf_hash, logged_at)` |
+Unlike protocol-v2 artifact sealing, the current transparency proof/checkpoint formats do not carry their own canonicalization-suite field. Producer and independent verifier therefore MUST use RFC 8785 for transparency artifact subjects and checkpoint bodies.
 
----
+A missing RFC 8785 implementation is an error. The transparency implementation does not silently switch to the artifact-layer deterministic fallback.
 
-## 3. Log Entry
+## 3. Artifact subject
 
-### 3.1 Appending
+### Protocol v2
 
-When a sealed artifact is logged, the implementation:
+V2 receipts are appendable external evidence and are intentionally outside the artifact signature. A transparency proof must therefore bind to a stable artifact subject that does not change when receipts are later attached.
 
-1. Computes `artifact_hash = SHA-256(canonical(envelope))`.
-2. Computes `leaf_hash = SHA-256(0x00 ‖ artifact_hash)`.
-3. Inserts `(artifact_id, artifact_hash, leaf_hash, logged_at)` into the
-   log database. The row's `seq` (auto-increment integer primary key)
-   determines the leaf's position: `leaf_index = seq - 1`.
-
-### 3.2 Uniqueness
-
-Each `artifact_id` may appear at most once. A second attempt to log the
-same `artifact_id` is an error. This mirrors the UNIQUE constraint used by
-the ArtifactStore.
-
-### 3.3 Log Entry Fields
+The v2 log subject is:
 
 ```json
 {
-  "seq":           1,
-  "artifact_id":   "ceyo_art_...",
+  "protected": { "...": "..." },
+  "integrity": { "...": "..." }
+}
+```
+
+The log records:
+
+```text
+artifact_hash = SHA-256(RFC8785({protected, integrity}))
+```
+
+`receipts` is excluded from this digest.
+
+This avoids two problems:
+
+1. attaching a later receipt does not invalidate an existing inclusion proof;
+2. a transparency receipt can refer to the artifact core without creating a circular hash dependency on itself.
+
+### Legacy v1
+
+For a legacy-v1 artifact newly entered into this reference transparency log, the log subject is the complete legacy envelope and the current transparency profile canonicalizes that subject with RFC 8785.
+
+This does not change the original v1 artifact signature scope; v1 signature verification still follows its historical `canonical(body)` semantics.
+
+## 4. Merkle hashing
+
+The reference implementation uses domain-separated SHA-256 hashing:
+
+```text
+leaf_hash = SHA-256(0x00 || artifact_hash)
+node_hash = SHA-256(0x01 || left || right)
+```
+
+Leaves are ordered by local sequence number. When a level has an unpaired final node, that node is promoted unchanged to the next level.
+
+The empty local tree root is:
+
+```text
+SHA-256("ceyo:empty-tree")
+```
+
+## 5. Log entry
+
+A local entry contains:
+
+```json
+{
+  "seq": 1,
+  "artifact_id": "ceyo_art_...",
   "artifact_hash": "<base64url SHA-256>",
-  "leaf_hash":     "<base64url SHA-256>",
-  "logged_at":     "2026-03-13T12:00:00Z"
+  "leaf_hash": "<base64url SHA-256>",
+  "logged_at": "2026-09-15T12:00:00Z"
 }
 ```
 
----
+For v2, `artifact_id` is read from signed `protected.artifact_id`.
 
-## 4. Merkle Tree
+`logged_at` is local log metadata. It is not, by itself, independently trusted time and is not part of the inclusion proof.
 
-### 4.1 Hash Functions
+A local uniqueness constraint prevents a second row with the same artifact ID in that database. It does not prove global uniqueness or append-only history to an outside verifier.
 
-| Operation | Expression |
-|-----------|-----------|
-| Leaf hash | `SHA-256(0x00 ‖ artifact_hash_bytes)` |
-| Internal node | `SHA-256(0x01 ‖ left_bytes ‖ right_bytes)` |
+## 6. Checkpoints
 
-The byte-prefix domain separators (`0x00` for leaves, `0x01` for internal
-nodes) follow RFC 6962 §2.1. They prevent second-preimage attacks where an
-internal node could be confused with a leaf.
-
-### 4.2 Tree Construction
-
-Given an ordered list of leaf hashes `[L_0, L_1, ..., L_{n-1}]`:
-
-```
-level = [L_0, L_1, ..., L_{n-1}]
-
-while len(level) > 1:
-    next = []
-    for i in range(0, len(level) - 1, 2):
-        next.append(node_hash(level[i], level[i+1]))
-    if len(level) is odd:
-        next.append(level[-1])   # promote lone node unchanged
-    level = next
-
-root = level[0]
-```
-
-**Odd-node promotion:** When a level has an odd number of nodes, the last
-node is carried to the next level unchanged (not duplicated, not hashed with
-itself). This matches RFC 6962 and Certificate Transparency.
-
-### 4.3 Empty Tree
-
-The empty-tree root is defined as `SHA-256(b"ceyo:empty-tree")`. This
-constant allows a checkpoint to be issued before any artifacts are logged.
-
-### 4.4 Tree Size
-
-`tree_size` is the count of log entries (leaves) in the tree at the time
-a root hash or checkpoint is computed.
-
----
-
-## 5. Signed Checkpoint
-
-### 5.1 Checkpoint Body
-
-The object that is canonicalized and signed:
+The current checkpoint body is:
 
 ```json
 {
-  "product":    "CEYO",
-  "type":       "transparency-checkpoint",
-  "tree_size":  <integer>,
-  "root_hash":  "<base64url SHA-256>",
-  "created_at": "<ISO 8601 UTC>"
+  "product": "CEYO",
+  "type": "transparency-checkpoint",
+  "tree_size": 42,
+  "root_hash": "<base64url SHA-256>",
+  "created_at": "2026-09-15T12:00:00Z"
 }
 ```
 
-All five fields are required. The `created_at` field is included in the
-signed body to prevent checkpoint replay.
+New reference checkpoints compute:
 
-### 5.2 Signing Algorithm
-
-```
-canonical_body = canonicalize(checkpoint_body)
-digest         = SHA-256(canonical_body)
-signature      = ECDSA-P256(private_key, digest, Prehashed-SHA256)
+```text
+checkpoint_digest = SHA-256(RFC8785(checkpoint_body))
+checkpoint_sig = ECDSA-P256(private_key, checkpoint_digest, Prehashed-SHA256)
 ```
 
-Canonicalization follows the same RFC 8785 / deterministic JSON fallback
-procedure as artifact body sealing (see `spec/pipeline.md §2`).
+New checkpoints declare:
 
-### 5.3 Full Checkpoint Structure
+```text
+sig.covers = "RFC8785(checkpoint_body)"
+```
+
+The independent verifier also accepts the earlier descriptor string `canonical(checkpoint_body)` for checkpoint-format compatibility. That legacy descriptor is interpreted using the same RFC 8785 checkpoint canonicalization rule; it is not permission to choose an arbitrary serialization.
+
+The full checkpoint adds:
+
+```text
+sig
+key_reference
+```
+
+### Time semantics
+
+Because `created_at` is inside the signed checkpoint body, changing that field later invalidates the signature.
+
+That does **not** prevent replay of the entire old signed checkpoint, and it does not independently prove that the checkpoint signer's clock was accurate. Freshness and trusted-time claims require additional external mechanisms.
+
+### Key-reference semantics
+
+In the current checkpoint format, `key_reference` is outside the signed checkpoint body.
+
+The standalone verifier therefore treats the caller-supplied checkpoint public key as the authenticated verification input and only checks the checkpoint fingerprint for consistency. The checkpoint key reference must not be treated as independently authenticated identity metadata merely because it appears in the checkpoint.
+
+A future checkpoint-format revision may bind additional checkpoint metadata into its signed scope.
+
+## 7. Inclusion proof
+
+A proof contains:
 
 ```json
 {
-  "product":    "CEYO",
-  "type":       "transparency-checkpoint",
-  "tree_size":  42,
-  "root_hash":  "<base64url SHA-256>",
-  "created_at": "2026-03-13T12:00:00Z",
-  "sig": {
-    "alg":       "ECDSA-P256-SHA256",
-    "format":    "DER",
-    "value_b64u":"<base64url DER signature>",
-    "covers":    "canonical(checkpoint_body)"
-  },
-  "key_reference": {
-    "registry":  "<registry name>",
-    "key_id":    "<key identifier>",
-    "public_key_fingerprint": {
-      "alg":       "SHA-256",
-      "value_b64u":"<base64url SHA-256 of SPKI DER>",
-      "covers":    "public_key_spki_der"
-    }
-  }
-}
-```
-
-**Schema:** `spec/checkpoint.schema.json`
-
-### 5.4 Checkpoint Verification
-
-1. Extract `checkpoint_body` by taking the fields: `product`, `type`,
-   `tree_size`, `root_hash`, `created_at` in that order.
-2. Compute `digest = SHA-256(canonicalize(checkpoint_body))`.
-3. Load the ECDSA P-256 public key from PEM.
-4. Verify `sig.value_b64u` against `digest` using ECDSA P-256 (prehashed).
-
-**Reference:** `ceyo_verify/transparency.py`
-
----
-
-## 6. Inclusion Proofs
-
-### 6.1 Proof Structure
-
-```json
-{
-  "artifact_id":   "ceyo_art_...",
+  "artifact_id": "ceyo_art_...",
   "artifact_hash": "<base64url SHA-256>",
-  "leaf_index":    0,
-  "tree_size":     10,
-  "root_hash":     "<base64url SHA-256>",
+  "leaf_index": 0,
+  "tree_size": 10,
+  "root_hash": "<base64url SHA-256>",
   "hashes": [
-    { "direction": "right", "value_b64u": "<base64url SHA-256>" },
-    { "direction": "left",  "value_b64u": "<base64url SHA-256>" }
+    {"direction": "right", "value_b64u": "..."},
+    {"direction": "left", "value_b64u": "..."}
   ]
 }
 ```
 
-**Schema:** `spec/inclusion-proof.schema.json`
+Verification starts from:
 
-### 6.2 Proof Generation
-
-Given `leaf_index` and the full ordered list of leaf hashes:
-
-```
-current_index = leaf_index
-level         = [all leaf hashes]
-proof         = []
-
-while len(level) > 1:
-    build next level (same algorithm as §4.2)
-
-    if current_index is even:
-        if current_index + 1 < len(level):
-            proof.append(("right", level[current_index + 1]))
-        # else: lone node, no sibling at this level
-    else:
-        proof.append(("left", level[current_index - 1]))
-
-    current_index = current_index // 2
-    level = next level
+```text
+current = SHA-256(0x00 || artifact_hash)
 ```
 
-### 6.3 Proof Verification Algorithm
+and walks the sibling path until it reconstructs the declared root.
 
-```
-# Step 1: recompute leaf hash from artifact hash
-current = SHA-256(0x00 ‖ b64u_decode(proof.artifact_hash))
+When the original artifact is supplied, the verifier recomputes the RFC-8785-based stable log subject described in Section 3 and confirms it matches `artifact_hash`.
 
-# Step 2: walk the sibling path
-for each step in proof.hashes:
-    sibling = b64u_decode(step.value_b64u)
-    if step.direction == "right":
-        current = SHA-256(0x01 ‖ current ‖ sibling)
-    else:
-        current = SHA-256(0x01 ‖ sibling ‖ current)
+## 8. Checkpoint-bound proof verification
 
-# Step 3: compare computed root to declared root (timing-safe)
-assert timing_safe_equal(current, b64u_decode(proof.root_hash))
-```
+If a checkpoint and externally selected checkpoint public key are supplied, the verifier also checks:
 
-### 6.4 Anchoring to a Checkpoint
+1. checkpoint product/type and signature structure;
+2. ECDSA P-256 checkpoint signature;
+3. descriptive checkpoint fingerprint consistency with the supplied key;
+4. proof root equals checkpoint root;
+5. proof tree size equals checkpoint tree size.
 
-When a checkpoint is available, the proof verification additionally requires:
+A successful result means the artifact subject is a member of the tree represented by that signed checkpoint.
 
-```
-assert proof.root_hash  == checkpoint.root_hash
-assert proof.tree_size  == checkpoint.tree_size
-# and checkpoint signature must be valid (§5.4)
-```
+It does not establish that the checkpoint is the newest checkpoint or the only checkpoint of that tree size.
 
-This anchors the proof to a specific signed state of the log, preventing
-an operator from presenting a proof against a manufactured root.
+## 9. Security properties
 
-### 6.5 Binding to the Original Artifact
+The prototype provides:
 
-Optionally, the verifier may recompute `artifact_hash` from the original
-envelope to confirm the proof refers to that specific envelope:
+- deterministic RFC-8785-based transparency-subject verification;
+- Merkle membership verification relative to a supplied root;
+- domain separation between leaves and internal nodes;
+- signed checkpoint assertions of tree size/root/declared checkpoint time;
+- independent proof verification without the CEYO SDK;
+- stable protocol-v2 artifact subjects that survive receipt attachment.
 
-```
-expected_artifact_hash = SHA-256(canonicalize(artifact_envelope))
-assert timing_safe_equal(expected_artifact_hash,
-                         b64u_decode(proof.artifact_hash))
-```
+It does not, by itself, provide:
 
-**Reference implementation:** `ceyo_verify/transparency.py:verify_inclusion_proof()`
+- global append-only consistency;
+- consistency proofs between checkpoints;
+- checkpoint freshness;
+- protection against split-view/equivocation;
+- independently trusted checkpoint time;
+- proof of absence from the log;
+- guaranteed detection of local database rollback/tail truncation.
 
----
+## 10. High-assurance extensions
 
-## 7. Security Properties
+A stronger transparency profile can add some combination of:
 
-| Property | Mechanism |
-|----------|-----------|
-| **Append-only** | UNIQUE constraint on `artifact_id`; seq is auto-increment |
-| **Leaf domain separation** | `0x00` prefix prevents leaf/node hash confusion |
-| **Node domain separation** | `0x01` prefix prevents node/leaf hash confusion |
-| **Checkpoint non-replayability** | `created_at` in signed body |
-| **Key binding** | `key_reference.public_key_fingerprint` in checkpoint |
-| **Timing-safe comparison** | HMAC digest comparison for root hash check |
-| **Independence** | `ceyo_verify/transparency.py` has no SDK dependency |
+- Merkle consistency proofs;
+- witnessed/cosigned checkpoints;
+- independent monitors;
+- gossip between verifiers;
+- monotonic checkpoint publication;
+- external timestamp authorities;
+- independently anchored checkpoint hashes/tree sizes.
 
-### 7.1 What the Log Proves
+Those properties should be claimed only when the corresponding mechanism is implemented and verified.
 
-- An artifact with a given `artifact_hash` was appended to the log before
-  the checkpoint was signed.
-- The Merkle root at that time was `checkpoint.root_hash`.
-- The checkpoint was signed by the key identified by `checkpoint.key_reference`.
+## 11. Reference implementation
 
-### 7.2 What the Log Does Not Prove
+Producer/log:
 
-- That the artifact body is correct or fair.
-- That the artifact was not suppressed (absence of an artifact in the log
-  cannot be proven by an inclusion proof).
-- That the signing key has not been compromised since the checkpoint.
+- `ceyo/transparency_log.py`
 
----
+Independent proof verifier:
 
-## 8. Integration with Artifact Sealing
+- `ceyo_verify/transparency.py`
 
-The transparency log is **separate** from the artifact store. They serve
-different purposes:
+Schemas:
 
-| Component | Purpose | Link |
-|-----------|---------|------|
-| `ArtifactStore` | Store full envelopes; detect tampering via hash chaining | `ceyo/store.py` |
-| `TransparencyLog` | Record artifact hashes in a Merkle tree; enable inclusion proofs | `ceyo/transparency_log.py` |
-
-Both can be used together. `CeyoClient` accepts both `store` and `log`
-parameters and populates both on each `seal()` call when `persist=True`.
-
-The `artifact_hash` stored in the log is `SHA-256(canonical(envelope))`.
-This is the hash of the **complete** sealed envelope (including `artifact_id`,
-`created_at`, `integrity`, and `key_reference`), not just the body.
+- `spec/checkpoint.schema.json`
+- `spec/inclusion-proof.schema.json`

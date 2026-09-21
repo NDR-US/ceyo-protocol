@@ -1,167 +1,137 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "CEYO Sealed Artifact Envelope",
+  "$id": "ceyo:artifact-envelope:2.0",
+  "title": "CEYO Sealed Artifact Envelope v2",
+  "description": "Current CEYO artifact envelope. Artifact-level trust inputs are carried inside protected and covered by the artifact digest/signature. sealed_at is signer-asserted time, not independently trusted time.",
   "type": "object",
-  "required": [
-    "product",
-    "envelope_version",
-    "artifact_schema",
-    "artifact_id",
-    "created_at",
-    "body",
-    "canonicalization",
-    "integrity",
-    "key_reference"
-  ],
+  "required": ["protected", "integrity", "receipts"],
+  "additionalProperties": false,
   "properties": {
-    "product": {
-      "type": "string",
-      "const": "CEYO"
-    },
-    "envelope_version": {
-      "type": "string"
-    },
-    "artifact_schema": {
+    "protected": {
       "type": "object",
       "required": [
-        "name",
-        "version"
+        "product",
+        "protocol_version",
+        "artifact_schema",
+        "artifact_id",
+        "sealed_at",
+        "canonicalization_suite",
+        "signing_suite",
+        "key_reference",
+        "body"
       ],
+      "additionalProperties": false,
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "version": {
-          "type": "string"
-        }
-      }
-    },
-    "artifact_id": {
-      "type": "string",
-      "pattern": "^ceyo_art_"
-    },
-    "created_at": {
-      "type": "string",
-      "format": "date-time",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
-    },
-    "body": {
-      "type": "object"
-    },
-    "canonicalization": {
-      "type": "object",
-      "required": [
-        "scheme",
-        "version",
-        "scope"
-      ],
-      "properties": {
-        "scheme": {
+        "product": {
           "type": "string",
-          "enum": ["RFC8785", "deterministic-json-fallback"]
+          "const": "CEYO"
         },
-        "version": {
-          "type": "string"
-        },
-        "scope": {
+        "protocol_version": {
           "type": "string",
-          "const": "body"
+          "const": "2.0",
+          "description": "Controls CEYO processing and trust rules."
+        },
+        "artifact_schema": {
+          "type": "object",
+          "description": "Controls the shape/version of protected.body; distinct from protocol_version.",
+          "required": ["name", "version"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "const": "ceyo.artifact" },
+            "version": { "type": "string", "const": "1.0" }
+          }
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^ceyo_art_[0-9a-f]{26}$"
+        },
+        "sealed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Signed signer-asserted sealing time. This prevents post-seal editing but does not by itself prove clock accuracy or prevent signer backdating."
+        },
+        "canonicalization_suite": {
+          "type": "object",
+          "required": ["scheme", "version"],
+          "additionalProperties": false,
+          "properties": {
+            "scheme": {
+              "type": "string",
+              "const": "RFC8785"
+            },
+            "version": { "type": "string", "const": "1.0" }
+          }
+        },
+        "signing_suite": {
+          "type": "object",
+          "required": ["alg", "format", "hash"],
+          "additionalProperties": false,
+          "properties": {
+            "alg": { "type": "string", "const": "ECDSA-P256-SHA256" },
+            "format": { "type": "string", "const": "DER" },
+            "hash": { "type": "string", "const": "SHA-256" }
+          }
+        },
+        "key_reference": {
+          "type": "object",
+          "required": ["registry", "key_id", "public_key_fingerprint"],
+          "additionalProperties": false,
+          "properties": {
+            "registry": { "type": "string" },
+            "key_id": { "type": "string" },
+            "public_key_fingerprint": {
+              "type": "object",
+              "required": ["alg", "value_b64u", "covers"],
+              "additionalProperties": false,
+              "properties": {
+                "alg": { "type": "string", "const": "SHA-256" },
+                "value_b64u": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+                "covers": { "type": "string", "const": "public_key_spki_der" }
+              }
+            },
+            "authority": {
+              "type": "object",
+              "description": "Optional authority/issuer metadata. When present it is integrity-bound because it is inside protected."
+            }
+          }
+        },
+        "body": {
+          "type": "object"
         }
       }
     },
     "integrity": {
       "type": "object",
-      "required": [
-        "hash",
-        "sig"
-      ],
+      "required": ["digest", "signature"],
+      "additionalProperties": false,
       "properties": {
-        "hash": {
+        "digest": {
           "type": "object",
-          "required": [
-            "alg",
-            "value_b64u",
-            "covers"
-          ],
+          "required": ["alg", "value_b64u", "covers"],
+          "additionalProperties": false,
           "properties": {
-            "alg": {
-              "type": "string",
-              "const": "SHA-256"
-            },
-            "value_b64u": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9_-]+$"
-            },
-            "covers": {
-              "type": "string"
-            }
+            "alg": { "type": "string", "const": "SHA-256" },
+            "value_b64u": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+            "covers": { "type": "string", "const": "canonical(protected)" }
           }
         },
-        "sig": {
+        "signature": {
           "type": "object",
-          "required": [
-            "alg",
-            "format",
-            "value_b64u",
-            "covers"
-          ],
+          "required": ["alg", "format", "value_b64u", "covers"],
+          "additionalProperties": false,
           "properties": {
-            "alg": {
-              "type": "string",
-              "const": "ECDSA-P256-SHA256"
-            },
-            "format": {
-              "type": "string",
-              "const": "DER"
-            },
-            "value_b64u": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9_-]+$"
-            },
-            "covers": {
-              "type": "string"
-            }
+            "alg": { "type": "string", "const": "ECDSA-P256-SHA256" },
+            "format": { "type": "string", "const": "DER" },
+            "value_b64u": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+            "covers": { "type": "string", "const": "sha256(canonical(protected))" }
           }
         }
       }
     },
-    "key_reference": {
-      "type": "object",
-      "required": [
-        "registry",
-        "key_id",
-        "public_key_fingerprint"
-      ],
-      "properties": {
-        "registry": {
-          "type": "string"
-        },
-        "key_id": {
-          "type": "string"
-        },
-        "public_key_fingerprint": {
-          "type": "object",
-          "required": [
-            "alg",
-            "value_b64u",
-            "covers"
-          ],
-          "properties": {
-            "alg": {
-              "type": "string",
-              "const": "SHA-256"
-            },
-            "value_b64u": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9_-]+$"
-            },
-            "covers": {
-              "type": "string"
-            }
-          }
-        }
-      }
+    "receipts": {
+      "type": "array",
+      "description": "Optional external evidence. Receipts are outside the artifact signature and do not alter artifact validity. A trust profile must validate each receipt's own type, subject binding, issuer, and proof before relying on it.",
+      "items": { "type": "object" }
     }
-  },
-  "additionalProperties": false
+  }
 }
