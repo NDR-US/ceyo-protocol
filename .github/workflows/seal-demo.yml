@@ -12,7 +12,7 @@ jobs:
     steps:
       # Pin to full commit SHA to prevent supply-chain attacks via mutable tags
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-python@0acd6853f8c4e2c04cd98e7f11c8a31abb66b4fe # v5.3.0
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
@@ -26,7 +26,7 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-python@0acd6853f8c4e2c04cd98e7f11c8a31abb66b4fe # v5.3.0
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
@@ -38,7 +38,7 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-python@0acd6853f8c4e2c04cd98e7f11c8a31abb66b4fe # v5.3.0
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
           python-version: "3.12"
       - run: pip install -e .

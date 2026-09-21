@@ -20,8 +20,16 @@ from ceyo.keys import InMemoryKeyProvider, KeyManager, LocalKeyProvider
 from ceyo.schema import ValidationError, validate_body, validate_envelope, validate_envelope_or_raise
 from ceyo.seal import seal, seal_body
 from ceyo.store import ArtifactStore
+from ceyo.transparency_log import (
+    TransparencyLog,
+    _leaf_hash,
+    _node_hash,
+    compute_inclusion_proof,
+    compute_root,
+)
 from ceyo.verify import verify_artifact
 from ceyo_verify import verify_artifact as standalone_verify
+from ceyo_verify.transparency import verify_inclusion_proof
 
 # ---------------------------------------------------------------------------
 # Crypto primitives
@@ -1059,14 +1067,7 @@ class TestStandaloneVerifier(TestCase):
 # Transparency log
 # ---------------------------------------------------------------------------
 
-from ceyo.transparency_log import (
-    TransparencyLog,
-    compute_inclusion_proof,
-    compute_root,
-    _leaf_hash,
-    _node_hash,
-)
-from ceyo_verify.transparency import verify_inclusion_proof
+
 
 
 class TestMerkleTree(TestCase):
@@ -1247,7 +1248,7 @@ class TestTransparencyLog(TestCase):
 
     def test_checkpoint_signature_valid(self):
         self.log.append(self._make_artifact())
-        cp = self.log.checkpoint()
+        self.log.checkpoint()
         pub_pem = self.kp.get_public_key_pem()
         # Verify via standalone transparency verifier
         art = self._make_artifact()
@@ -1262,7 +1263,7 @@ class TestTransparencyLog(TestCase):
 
     def test_latest_checkpoint_returns_last(self):
         self.log.append(self._make_artifact())
-        cp1 = self.log.checkpoint()
+        self.log.checkpoint()
         self.log.append(self._make_artifact())
         cp2 = self.log.checkpoint()
         latest = self.log.latest_checkpoint()
