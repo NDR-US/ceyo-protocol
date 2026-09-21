@@ -43,3 +43,9 @@ python_version = "3.10"
 warn_return_any = false
 warn_unused_configs = true
 ignore_missing_imports = true
+
+# Publish the SDK and independent verifier together; downstream consumers
+# must be able to import ceyo_verify from the installed wheel, not only from
+# a repository checkout.
+[tool.hatch.build.targets.wheel]
+packages = ["ceyo", "ceyo_verify"]
