@@ -162,7 +162,7 @@ def _check_envelope(artifact: dict[str, Any]) -> list[str]:
             errors.append(f"canonicalization.scope: expected 'body', got {canon.get('scope')!r}")
         scheme = canon.get("scheme")
         if scheme not in {"RFC8785", "deterministic-json-fallback"}:
-            errors.append(f"canonicalization.scheme: unknown scheme {scheme!r}; expected 'RFC8785' or 'deterministic-json-fallback'")
+            errors.append(\n                f"canonicalization.scheme: unknown scheme {scheme!r}; "\n                "expected 'RFC8785' or 'deterministic-json-fallback'"\n            )
 
     return errors
 
