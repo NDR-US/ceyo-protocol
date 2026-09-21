@@ -58,3 +58,19 @@ jobs:
           retention-days: 7
           path: |
             example_artifact/sealed_artifact.json
+
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+      - name: Build and install distributable wheel
+        run: |
+          python -m pip wheel --no-deps . --wheel-dir dist
+          python -m pip install dist/ceyo-*.whl
+      - name: Assert both public modules import from installed wheel outside repository
+        run: |
+          cd /tmp
+          python -c "import ceyo, ceyo_verify, ceyo_verify.verifier; print(ceyo.__file__); print(ceyo_verify.__file__)"
