@@ -1,332 +1,289 @@
 # CEYO Protocol — End-to-End Pipeline
 
-Version: 1.0-draft
+Version: 2.0-draft  
 Status: Draft
-
----
 
 ## Overview
 
-The CEYO pipeline transforms a raw AI decision event into a tamper-evident,
-independently verifiable record anchored in a signed Merkle transparency log.
-Each stage is deterministic: identical inputs always produce identical
-cryptographic outputs.
+CEYO transforms a policy-scoped record of an AI-supported operation into a cryptographically verifiable artifact. Protocol v2 signs the complete `protected` object rather than only the body so artifact-level trust inputs are integrity-bound.
 
+```text
+Policy-scoped event/body
+        ↓
+Build protected object
+        ↓
+RFC 8785 canonicalization
+        ↓
+SHA-256 digest
+        ↓
+ECDSA-P256 signature
+        ↓
+Artifact envelope
+        ↓
+Independent verification
+        ↓
+Optional external receipts / transparency evidence
 ```
-Input / Output
-      ↓
-Canonicalization
-      ↓
-Hash + Signature
-      ↓
-Artifact Envelope
-      ↓
-Transparency Log
-      ↓
-Signed Checkpoint
-      ↓
-Standalone Verification
-      ↓
-Inclusion Proof Validation
-```
+
+The basic artifact-validity path does not require a transparency log. External receipts may strengthen a later trust decision without changing the original artifact signature.
 
 ---
 
-## Stage 1 — Input / Output
+## Stage 1 — Policy-scoped body
 
-**Purpose:** Define what gets recorded.
+The body records fields authorized by the applicable capture policy.
 
-An AI decision event is captured according to an operator-defined capture
-policy. The policy determines which fields are included, excluded, or masked.
-Raw inputs and outputs are **not** stored; only policy-scoped references
-(SHA-256 hashes of a canonicalized representation) are embedded in the
-artifact body.
+Typical fields include:
 
-**Body fields:**
+| Field | Description |
+|---|---|
+| `event.event_id` | Event identifier |
+| `event.type` | Event type |
+| `event.occurred_at` | Source-asserted event time |
+| `event.request_id` | Optional correlation identifier |
+| `policy.id` | Capture-policy identifier |
+| `policy.version` | Capture-policy version |
+| `policy.digest` | Optional digest committing to an exact policy representation |
+| `capture` | Policy-scoped capture references |
+| `disclosure_policy` | Sealing-time disclosure commitment |
+| `environment` | Declared runtime/deployment metadata |
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `event.event_id` | Yes | Unique identifier for this event |
-| `event.type` | Yes | Event type (e.g. `inference`, `classification`) |
-| `event.occurred_at` | Yes | ISO 8601 UTC timestamp |
-| `event.request_id` | No | Correlation ID for the originating request |
-| `policy.id` | No | Capture policy identifier |
-| `policy.version` | No | Capture policy version |
-| `disclosure_tier` | No | `public`, `internal`, or `restricted` |
-| `capture.input_ref_hash` | No | SHA-256 hash of policy-scoped input |
-| `capture.output_ref_hash` | No | SHA-256 hash of policy-scoped output |
-| `environment` | No | Deployment and model metadata |
-
-**Schema:** `spec/artifact-schema.json` (body sub-object)
-
-**Reference implementation:** `ceyo/seal.py:seal()`, `ceyo/client.py:CeyoClient.trace()`
+The protocol does not establish that pre-seal capture was complete or truthful. It makes later changes to signature-bound evidence detectable.
 
 ---
 
-## Stage 2 — Canonicalization
+## Stage 2 — Build `protected`
 
-**Purpose:** Produce a deterministic byte sequence from the artifact body so
-that any party can reproduce the exact same bytes from the same data.
+Protocol v2 constructs:
 
-**Algorithm:**
-
-1. Serialize the body object using RFC 8785 (JSON Canonicalization Scheme).
-   RFC 8785 enforces: lexicographic key ordering, no insignificant whitespace,
-   deterministic number encoding, UTF-8 output.
-2. If RFC 8785 is unavailable, fall back to sorted-key compact JSON
-   (`sort_keys=True`, `separators=(",", ":")`, UTF-8).
-3. Record the scheme name in `canonicalization.scheme` so verifiers can
-   reproduce it exactly.
-
-**Output:** `canonical_bytes: bytes`
-
-**Declared in envelope:** `canonicalization.scheme` — either `"RFC8785"` or
-`"deterministic-json-fallback"`.
-
-**Reference implementation:** `ceyo/crypto.py:canonicalize()`
-
-**Standalone implementation:** `ceyo_verify/verifier.py:_canonicalize()`
-
----
-
-## Stage 3 — Hash + Signature
-
-**Purpose:** Cryptographically bind the artifact body to the issuing key so
-that any modification is detectable.
-
-### 3a — Hash
-
+```text
+protected
+├── product
+├── protocol_version
+├── artifact_schema
+├── artifact_id
+├── sealed_at
+├── canonicalization_suite
+├── signing_suite
+├── key_reference
+└── body
 ```
+
+`protocol_version` controls CEYO processing and trust semantics. `artifact_schema` controls the shape/version of `protected.body`.
+
+`sealed_at` is a signed signer-asserted time. It is not independently trusted time.
+
+`key_reference` is inside `protected`, so registry/key/fingerprint metadata committed to by the signer cannot be altered later without invalidating the artifact.
+
+---
+
+## Stage 3 — Canonicalization
+
+Protocol v2 uses RFC 8785 JSON Canonicalization Scheme (JCS) for the complete `protected` object.
+
+```text
+canonical_bytes = RFC8785(protected)
+```
+
+Current artifacts MUST declare:
+
+```text
+protected.canonicalization_suite.scheme  = "RFC8785"
+protected.canonicalization_suite.version = "1.0"
+```
+
+A producer MUST NOT silently substitute another serializer when RFC 8785 is unavailable. A verifier MUST reproduce the declared supported scheme exactly.
+
+Legacy-v1 artifacts may retain historical canonicalization declarations and are verified under their original semantics.
+
+---
+
+## Stage 4 — Digest
+
+```text
 digest = SHA-256(canonical_bytes)
 ```
 
-- Algorithm: SHA-256 (FIPS 180-4)
-- Output: 32-byte digest, encoded as base64url (no padding)
-- Stored in: `integrity.hash.value_b64u`
+The digest is stored in:
 
-### 3b — Signature
+`integrity.digest.value_b64u`
 
-```
+with:
+
+`integrity.digest.covers = "canonical(protected)"`
+
+Changing any canonicalized field in `protected` changes the digest.
+
+---
+
+## Stage 5 — Signature
+
+Current protocol-v2 signing suite:
+
+- ECDSA P-256 / secp256r1
+- SHA-256
+- prehashed mode
+- DER signature encoding
+
+```text
 signature = ECDSA-P256(private_key, digest, Prehashed-SHA256)
 ```
 
-- Curve: NIST P-256 (secp256r1)
-- Hash: SHA-256 (prehashed mode — the 32-byte digest is signed directly)
-- Encoding: DER (Distinguished Encoding Rules)
-- Stored in: `integrity.sig.value_b64u`
+The signature is stored in:
 
-**Key reference** is embedded alongside the signature in `key_reference`,
-including the SHA-256 fingerprint of the public key's SPKI DER encoding.
-This fingerprint is checked during verification to detect key-substitution
-attacks.
+`integrity.signature.value_b64u`
 
-**Reference implementation:** `ceyo/seal.py:seal_body()`
+with:
 
-**Standalone implementation:** `ceyo_verify/verifier.py:verify_artifact()`
+`integrity.signature.covers = "sha256(canonical(protected))"`
+
+The artifact signature authenticates `protected`; it does not cover `receipts`.
 
 ---
 
-## Stage 4 — Artifact Envelope
+## Stage 6 — Artifact envelope
 
-**Purpose:** Package the body, canonicalization metadata, integrity proofs,
-and key reference into a single self-describing JSON document.
+A current artifact is:
 
-**Top-level envelope fields:**
+```text
+artifact
+├── protected
+├── integrity
+└── receipts[]
+```
 
-| Field | Value / Description |
-|-------|---------------------|
-| `product` | `"CEYO"` (constant) |
-| `envelope_version` | `"1.0"` |
-| `artifact_schema` | `{"name": "ceyo.artifact", "version": "1.0"}` |
-| `artifact_id` | Unique ID matching `^ceyo_art_` |
-| `created_at` | ISO 8601 UTC timestamp |
-| `body` | Policy-scoped event data (Stage 1) |
-| `canonicalization` | Scheme, version, scope |
-| `integrity` | Hash and signature blocks (Stage 3) |
-| `key_reference` | Registry, key ID, public key fingerprint |
+`receipts` exists outside the artifact signature so independently authenticated evidence can be appended later.
 
-**Schema:** `spec/artifact-schema.json`
+Appending, removing, or modifying `receipts` does not change artifact signature validity. A receipt affects trust only if its own type-specific proof, issuer, and subject binding are validated by an applicable profile.
 
-**Reference implementation:** `ceyo/seal.py:seal_body()` (envelope assembly),
-`ceyo/schema.py` (validation)
+Schema: `spec/artifact-schema.json`  
+Legacy schema: `spec/artifact-schema-v1.json`
 
 ---
 
-## Stage 5 — Transparency Log
+## Stage 7 — Independent artifact verification
 
-**Purpose:** Record each sealed artifact in an append-only Merkle tree so
-that the complete log can be audited and individual membership can be proven.
+A v2 verifier performs at least:
 
-### Log Entry
+1. envelope/schema validation;
+2. protocol/canonicalization/signing-suite checks;
+3. public-key loading and P-256 enforcement;
+4. RFC 8785 canonicalization of `artifact["protected"]`;
+5. SHA-256 digest recomputation;
+6. digest comparison;
+7. ECDSA signature verification;
+8. public-key fingerprint comparison against `protected.key_reference`.
 
-Each entry records:
+Successful completion establishes cryptographic artifact validity under protocol v2. It does not by itself establish signer authorization, historical key status, externally trusted time, compliance, or correctness of the underlying AI event.
 
-```
-artifact_hash = SHA-256(canonical(envelope))
-leaf_hash     = SHA-256(0x00 ‖ artifact_hash)
-```
-
-The `0x00` prefix is the RFC 6962 leaf domain separator, preventing
-second-preimage attacks between leaf hashes and internal node hashes.
-
-### Merkle Tree
-
-Nodes are computed as:
-
-```
-node_hash(left, right) = SHA-256(0x01 ‖ left ‖ right)
-```
-
-The `0x01` prefix is the RFC 6962 internal-node domain separator.
-
-Tree construction: leaves are hashed in append order. At each level, pairs
-of nodes are combined. Lone nodes at odd positions are **promoted unchanged**
-(not duplicated). This matches the RFC 6962 / Certificate Transparency
-convention.
-
-**Storage:** SQLite database with append-only semantics enforced by a
-`UNIQUE` constraint on `artifact_id`.
-
-**Schema:** `spec/inclusion-proof.schema.json`
-
-**Reference implementation:** `ceyo/transparency_log.py:TransparencyLog`
+Reference implementation: `ceyo/verify.py`  
+Independent implementation: `ceyo_verify/verifier.py`
 
 ---
 
-## Stage 6 — Signed Checkpoint
+## Stage 8 — Trust evaluation
 
-**Purpose:** Produce a signed, timestamped snapshot of the Merkle tree root
-so that inclusion proofs can be anchored to a specific verifiable state.
+Artifact validity and trust are intentionally separate.
 
-### Checkpoint Body
+```text
+artifact validity
+    = schema/protocol processing
+    + digest verification
+    + signature verification
+    + protected key-fingerprint consistency
 
-```json
-{
-  "product": "CEYO",
-  "type":    "transparency-checkpoint",
-  "tree_size": <integer>,
-  "root_hash": "<base64url SHA-256>",
-  "created_at": "<ISO 8601 UTC>"
-}
+trust status
+    = artifact validity
+    + signer/key authorization or trust state
+    + status/revocation evidence
+    + accepted receipts / anchors
+    + profile policy
 ```
 
-### Signing
-
-```
-checkpoint_digest = SHA-256(canonical(checkpoint_body))
-checkpoint_sig    = ECDSA-P256(private_key, checkpoint_digest, Prehashed-SHA256)
-```
-
-The same signing algorithm as artifact sealing is used. The full checkpoint
-embeds `sig` and `key_reference` fields alongside the body fields.
-
-**Schema:** `spec/checkpoint.schema.json`
-
-**Reference implementation:** `ceyo/transparency_log.py:TransparencyLog.checkpoint()`
-
-**Standalone verifier:** `ceyo_verify/transparency.py:verify_inclusion_proof()`
-(checkpoint signature verification)
+A verifier may therefore report a valid artifact while a higher-assurance profile remains unsatisfied or indeterminate.
 
 ---
 
-## Stage 7 — Standalone Verification
+## Stage 9 — Optional transparency evidence
 
-**Purpose:** Allow any third party to verify an artifact's integrity and
-authenticity without access to the CEYO SDK or the originating AI system.
+The repository includes a Merkle-tree transparency prototype. It records a stable artifact subject, issues signed checkpoints, and generates inclusion proofs.
 
-**Steps:**
+For protocol v2, the stable log subject is:
 
-1. Validate envelope schema (required fields, const values, patterns).
-2. Load the ECDSA P-256 public key from PEM.
-3. Canonicalize `artifact["body"]` using the declared scheme.
-4. Recompute SHA-256 and compare to `integrity.hash.value_b64u` (timing-safe).
-5. Verify ECDSA DER signature in `integrity.sig.value_b64u` against the digest.
-6. Optionally verify key fingerprint in `key_reference.public_key_fingerprint`.
+```text
+{ protected, integrity }
+```
 
-**Dependencies:** standard library + `cryptography` + optional `rfc8785`.
-No CEYO SDK required.
+and excludes `receipts`. This allows later receipt attachment without changing an existing transparency subject or creating a circular receipt hash.
 
-**Reference implementation:** `ceyo_verify/verifier.py:verify_artifact()`
+A verified inclusion proof can show that the artifact subject is a member of the tree represented by a particular signed checkpoint.
 
-**CLI:** `python -m ceyo_verify <artifact.json> <pubkey.pem>`
+Important limits:
+
+- `checkpoint.created_at` is a signed assertion by the checkpoint signer; it is not automatically independent trusted time;
+- an old valid checkpoint can be replayed unless a freshness mechanism is added;
+- inclusion proofs do not by themselves prove global append-only consistency;
+- a log operator can potentially equivocate unless consistency/witness/monitor/gossip mechanisms are added;
+- absence from the log is not proved by an inclusion proof.
+
+See `spec/transparency-log.md`.
 
 ---
 
-## Stage 8 — Inclusion Proof Validation
+## Time model
 
-**Purpose:** Prove that a specific artifact was included in the Merkle tree
-at the time a checkpoint was signed, without replaying the entire log.
+CEYO distinguishes several time claims:
 
-### Proof Structure
+| Time | Meaning | Assurance |
+|---|---|---|
+| `protected.body.event.occurred_at` | Originating system's assertion about event time | Source asserted |
+| `protected.sealed_at` | Artifact signer's assertion about sealing time | Signature-bound, self asserted |
+| `checkpoint.created_at` | Transparency-checkpoint signer's assertion about checkpoint time | Signature-bound, not automatically fresh or independently trusted |
+| accepted external time evidence | Time evidence from a separately authenticated mechanism accepted by the verification profile | Depends on mechanism, issuer/witness independence, and profile |
 
-```json
-{
-  "artifact_id":   "ceyo_art_...",
-  "artifact_hash": "<base64url SHA-256>",
-  "leaf_index":    <integer>,
-  "tree_size":     <integer>,
-  "root_hash":     "<base64url SHA-256>",
-  "hashes": [
-    { "direction": "left"|"right", "value_b64u": "<base64url SHA-256>" },
-    ...
-  ]
-}
-```
+Signing `sealed_at` solves post-seal modification of that field. It does not solve malicious signer backdating.
 
-### Validation Algorithm
-
-```
-current = SHA-256(0x00 ‖ b64u_decode(proof.artifact_hash))   # leaf hash
-
-for each step in proof.hashes:
-    sibling = b64u_decode(step.value_b64u)
-    if step.direction == "right":
-        current = SHA-256(0x01 ‖ current ‖ sibling)
-    else:
-        current = SHA-256(0x01 ‖ sibling ‖ current)
-
-assert current == b64u_decode(proof.root_hash)
-```
-
-If a checkpoint is provided, additionally verify:
-
-1. Checkpoint ECDSA signature is valid (Stage 6 algorithm).
-2. `proof.root_hash == checkpoint.root_hash`
-3. `proof.tree_size == checkpoint.tree_size`
-
-**Schema:** `spec/inclusion-proof.schema.json`
-
-**Reference implementation:** `ceyo/transparency_log.py:TransparencyLog.prove_inclusion()`
-
-**Standalone verifier:** `ceyo_verify/transparency.py:verify_inclusion_proof()`
+Historical revocation evaluation should use an accepted external time anchor when required by the verification profile.
 
 ---
 
-## Pipeline Properties
+## Legacy v1
 
-| Property | Guarantee |
-|----------|-----------|
-| **Determinism** | Identical body → identical canonical bytes → identical hash |
-| **Integrity** | Any modification to body bytes causes hash mismatch |
-| **Authenticity** | Signature can only be produced by the holder of the private key |
-| **Non-repudiation** | Key fingerprint in envelope binds signature to a specific public key |
-| **Append-only log** | UNIQUE constraint + sequential seq prevent insertion or reordering |
-| **Merkle membership** | Inclusion proof size is O(log n); verification is O(log n) |
-| **Checkpoint anchoring** | Checkpoint signature binds root hash to a specific key and timestamp |
-| **Independent verification** | All stages 7 and 8 require only stdlib + `cryptography` |
+Protocol v1 used:
+
+```text
+signature_scope = canonical(body)
+```
+
+The v1 top-level artifact ID, creation time, canonicalization declaration, and key reference were outside that signature scope.
+
+V1 remains verifiable under its original semantics and must not be represented as though those fields were historically signature-bound.
 
 ---
 
-## Algorithm Reference
+## Security properties and limits
 
-| Operation | Algorithm | Standard |
-|-----------|-----------|----------|
-| Canonicalization | RFC 8785 JCS | RFC 8785 |
-| Body hash | SHA-256 | FIPS 180-4 |
-| Artifact signature | ECDSA P-256 (prehashed) | FIPS 186-5 |
-| Key fingerprint | SHA-256 of SPKI DER | RFC 5480 |
-| Log leaf hash | SHA-256(0x00 ‖ data) | RFC 6962 §2.1 |
-| Log node hash | SHA-256(0x01 ‖ left ‖ right) | RFC 6962 §2.1 |
-| Checkpoint hash | SHA-256 of canonical body | FIPS 180-4 |
-| Checkpoint signature | ECDSA P-256 (prehashed) | FIPS 186-5 |
-| All base64url encoding | Base64url, no padding | RFC 4648 §5 |
+| Property | Protocol-v2 statement |
+|---|---|
+| Deterministic verification | RFC 8785 defines the canonical bytes for the signed `protected` object |
+| Protected-field integrity | Modification after sealing changes digest/signature verification |
+| Key-reference integrity | V2 key reference is inside the signed `protected` object |
+| Artifact authenticity | Signature verifies under the supplied corresponding public key; organizational identity/authorization requires separate trust evidence |
+| External receipts | Can strengthen trust only after their own authentication and subject binding are validated |
+| Independent verification | Artifact cryptographic validity can be checked without access to the originating AI system |
+| Objective event truth | Not established |
+| Trusted time | Not established by `sealed_at` alone |
+| Global transparency consistency | Not established by inclusion proofs/checkpoints alone |
+
+---
+
+## Algorithm summary
+
+| Operation | Current algorithm |
+|---|---|
+| Protected canonicalization | RFC 8785 JCS |
+| Artifact digest | SHA-256 |
+| Artifact signature | ECDSA P-256, SHA-256, DER |
+| Public-key fingerprint | SHA-256 of SPKI DER |
+| Merkle leaf/node hashing | SHA-256 with domain-separation prefixes |
+| Base64 representation | base64url without padding |

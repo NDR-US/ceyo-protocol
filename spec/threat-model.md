@@ -1,324 +1,247 @@
 # CEYO Threat Model
 
-**Version:** 1.0
-**Last Updated:** 2026-03-11
+Version: 2.0-draft  
+Status: Draft
 
----
+## 1. Scope
 
-## 1. Introduction
+This document describes threats to CEYO artifact construction, storage, verification, key resolution, and optional transparency evidence.
 
-This document defines the threat model for the CEYO evidentiary infrastructure protocol. It identifies attack vectors that could compromise artifact integrity, authenticity, availability, or verification reliability, and describes the mitigations provided by the protocol architecture.
+CEYO is designed to make unauthorized post-seal modification of authenticated evidence detectable and to support independent cryptographic verification. It does not determine whether the underlying AI event was correct, complete, fair, lawful, compliant, or objectively true.
 
-CEYO generates deterministic, cryptographically sealed artifacts describing AI system decision events. The threat model focuses on threats to the artifact generation and verification pipeline — not on threats to AI model correctness, fairness, or regulatory compliance.
+## 2. Assets
 
----
+Relevant assets include:
 
-## 2. Security Objectives
+- the policy-scoped event/body being sealed;
+- the protocol-v2 `protected` object;
+- private signing keys;
+- public-key trust/status information;
+- artifact stores;
+- transparency-log state and checkpoints;
+- receipts and other external evidence;
+- verification software and its dependencies.
 
-### 2.1 Artifact Integrity
+## 3. Trust boundaries
 
-Artifacts MUST NOT be modifiable after cryptographic sealing without detection. Any alteration to artifact contents MUST produce a different hash and cause verification failure.
+```text
+Operator trust boundary
+┌─────────────────────────────────────────────┐
+│ AI/application → policy capture → sealing   │
+│                         │                   │
+│                         └→ signing key      │
+│                                             │
+│ artifact store / optional local log         │
+└─────────────────────────────────────────────┘
+                     │
+                     │ portable artifact/evidence
+                     ▼
+Verifier trust boundary
+┌─────────────────────────────────────────────┐
+│ artifact + public key + trust/status data   │
+│                 ↓                           │
+│              verifier                       │
+└─────────────────────────────────────────────┘
 
-### 2.2 Artifact Authenticity
-
-Artifacts MUST be verifiably associated with the entity that generated the cryptographic signature. Verification MUST confirm that the artifact was sealed by the holder of the declared signing key.
-
-### 2.3 Deterministic Reproducibility
-
-Independent verifiers MUST be able to recompute canonical artifact hashes using the declared canonicalization scheme. Verification results MUST be reproducible across environments and implementations.
-
-### 2.4 Independent Verification
-
-Verification MUST NOT require access to the original AI system. Artifacts MUST contain sufficient information for independent verification without revealing proprietary model details.
-
-### 2.5 Policy-Bounded Data Capture
-
-Artifact contents MUST remain constrained to policy-scoped fields defined by the capture policy. System data outside the policy scope MUST NOT be recorded.
-
----
-
-## 3. Trust Boundaries
-
-```
-┌─────────────────────────────────────────────────┐
-│              Operator-Controlled                 │
-│                                                  │
-│  ┌──────────┐    ┌──────────┐    ┌───────────┐  │
-│  │ AI System │───►│  CEYO    │───►│ Artifact  │  │
-│  │           │    │ Capture  │    │  Store    │  │
-│  └──────────┘    │ + Seal   │    └───────────┘  │
-│                  └────┬─────┘                    │
-│                       │                          │
-│                  ┌────▼─────┐                    │
-│                  │ Signing  │                    │
-│                  │   Key    │                    │
-│                  └──────────┘                    │
-│                                                  │
-├──────────────────────────────────────────────────┤
-│              Verifier-Controlled                 │
-│                                                  │
-│  ┌──────────┐    ┌──────────┐    ┌───────────┐  │
-│  │ Artifact │───►│ Verifier │◄───│  Public   │  │
-│  │  (JSON)  │    │          │    │   Key     │  │
-│  └──────────┘    └──────────┘    └───────────┘  │
-│                                                  │
-└──────────────────────────────────────────────────┘
+Optional external evidence boundary
+┌─────────────────────────────────────────────┐
+│ transparency service / TSA / witness / CA   │
+└─────────────────────────────────────────────┘
 ```
 
-**Operator domain:** AI system, capture layer, sealing process, signing key, artifact storage.
-**Verifier domain:** Artifact copy, verification software, public key.
-**Trust boundary:** The artifact envelope is the trust boundary. Verification operates entirely on the artifact and public key without crossing into the operator domain.
+The cryptographic artifact boundary is the v2 `protected` object plus its `integrity` proof. Receipts are external evidence and are trusted only after their own authentication and subject binding are validated.
 
----
+## 4. Security objectives
 
-## 4. Threat Categories
+### 4.1 Protected-state integrity
 
-### 4.1 Artifact Tampering
+Any modification to canonicalized fields inside `protected` after sealing must be detectable by digest/signature verification.
 
-**Threat:** An attacker modifies artifact contents after generation — altering fields, timestamps, identifiers, or removing recorded data.
+### 4.2 Signature validity
 
-**Impact:** If undetected, tampering destroys the evidentiary value of the artifact. A modified artifact could misrepresent the AI system's behavior.
+A verifier must be able to determine whether the signature verifies under the supplied ECDSA P-256 public key.
 
-**Attack vectors:**
-- Direct modification of stored artifact JSON
-- Man-in-the-middle alteration during artifact transmission
-- Database-level modification of artifact records
-- Field injection or removal in transit
+### 4.3 Key-reference integrity
 
-**Mitigation:**
-- Artifacts are sealed with SHA-256 hash over the canonicalized body. Any modification changes the hash.
-- Artifacts are signed with ECDSA P-256. Any modification invalidates the signature.
-- Verification recomputes the hash and validates the signature, detecting any tampering.
-- Hash chaining in the artifact store provides sequence-level tamper evidence.
+Artifact-level key-resolution metadata used by v2 must be signature-bound so storage modification cannot silently change the artifact's declared key reference.
 
-**Residual risk:** Tampering is detectable but not preventable. An attacker with storage access can delete artifacts entirely (see Section 4.6).
+### 4.4 Explicit algorithm commitment
 
----
+Canonicalization and signing-suite declarations used for artifact validity must themselves be inside the signed scope.
 
-### 4.2 Replay Attacks
+### 4.5 Independent verification
 
-**Threat:** An attacker reuses a previously generated, validly signed artifact to misrepresent a new or different event.
+Basic artifact validity must be checkable without access to the originating AI system or CEYO SDK.
 
-**Impact:** A replayed artifact passes cryptographic verification because it was genuinely sealed. The deception is semantic — the artifact is authentic but presented out of context.
+### 4.6 Honest limitation of time claims
 
-**Attack vectors:**
-- Submitting an old artifact as evidence of a recent event
-- Reusing artifacts across different systems or deployments
-- Duplicating artifacts within an artifact store
+The protocol must distinguish signed signer assertions from independently anchored time evidence.
 
-**Mitigation:**
-- Each artifact contains a unique `artifact_id` (prefixed `ceyo_art_`)
-- Each artifact contains an `event.event_id` and `event.occurred_at` timestamp
-- The artifact store assigns monotonic sequence numbers and chain hashes
-- Verification systems SHOULD enforce uniqueness of artifact identifiers
-- Verification systems SHOULD validate timestamps against expected time windows
+## 5. Threats
 
-**Residual risk:** Replay detection requires policy enforcement at the verification or storage layer. The protocol provides the identifiers and timestamps needed for detection but does not mandate a specific replay detection mechanism.
+### 5.1 Protected-field tampering
 
----
+**Threat:** An attacker with storage or transport access changes `artifact_id`, `sealed_at`, `key_reference`, policy metadata, event data, capture data, environment metadata, or another field inside `protected`.
 
-### 4.3 Signing Key Compromise
+**Mitigation:** Protocol v2 hashes and signs `canonical(protected)`. Any canonicalized change produces a digest mismatch or invalid signature unless the attacker can produce a new valid signature under an accepted key.
 
-**Threat:** An attacker obtains the private signing key and generates artifacts that appear authentic.
+**Residual risk:** A holder of a trusted private key can intentionally create misleading evidence at signing time. Cryptography authenticates what was signed; it does not guarantee truthfulness of the signer.
 
-**Impact:** Critical. A compromised signing key allows an attacker to forge artifacts that pass all cryptographic verification checks.
+### 5.2 Key-reference substitution
 
-**Attack vectors:**
-- Key extraction from insecure storage (file system, environment variables)
-- Side-channel attacks on signing operations
-- Insider access to key material
-- Compromise of key management infrastructure
+**Threat:** An attacker modifies signer/key-resolution metadata after sealing.
 
-**Mitigation:**
-- CEYO does not manage signing keys. Key management is the operator's responsibility.
-- Operators SHOULD store signing keys in hardware security modules (HSM) or managed key services (KMS) where the private key never leaves the hardware boundary.
-- Key rotation procedures SHOULD be implemented to limit the window of exposure.
-- The `key_reference` field in each artifact identifies the signing key, enabling revocation and rotation tracking.
-- Verification systems SHOULD maintain a record of valid key identifiers and rotation events.
+**Legacy-v1 exposure:** V1 stored `key_reference` outside `canonical(body)`, so the reference itself was not signature-bound.
 
-**Residual risk:** If an attacker compromises the signing key, forged artifacts are cryptographically indistinguishable from genuine ones until the compromise is detected and the key is revoked.
+**V2 mitigation:** `protected.key_reference` is inside the signed scope. The verifier also checks that the supplied public key matches the committed fingerprint.
 
----
+**Residual risk:** A fingerprint match does not prove that the key belongs to a trusted organization or person. Authorization requires external trust-anchor evidence.
 
-### 4.4 Schema Manipulation
+### 5.3 Timestamp manipulation and backdating
 
-**Threat:** An attacker modifies the artifact schema or capture policy to change which fields are recorded, altering the meaning or completeness of artifacts without modifying individual artifact contents.
+**Threat A — post-seal editing:** A third party changes the artifact's sealing timestamp after generation.
 
-**Impact:** Artifacts may appear valid but record different information than expected. Field semantics may shift without detection.
+**V2 mitigation:** `protected.sealed_at` is signature-bound.
 
-**Attack vectors:**
-- Modifying the capture policy to exclude critical fields
-- Changing schema definitions to redefine field semantics
-- Deploying a modified schema version without change control
+**Threat B — signer backdating:** A malicious or compromised signer chooses an incorrect time at signing, potentially to make an artifact appear to predate key revocation or another event.
 
-**Mitigation:**
-- Each artifact declares its schema version in `artifact_schema` (name and version)
-- Verification systems MUST validate artifacts against the declared schema version
-- Schema changes SHOULD follow versioned change control with audit trails
-- Schema versions SHOULD be immutable once published
-- Verifiers SHOULD reject artifacts referencing unknown schema versions
+**Mitigation:** Not solved by the artifact signature alone. A higher-assurance profile requires independently authenticated time evidence such as an accepted transparency receipt/checkpoint, timestamp authority, or witness mechanism.
 
-**Residual risk:** Schema governance is an operational concern. The protocol provides schema versioning, but enforcement requires organizational discipline.
+**Residual risk:** The strength of the time claim depends on the external mechanism's own clock, identity, anti-equivocation, and availability assumptions.
 
----
+### 5.4 Signing-key compromise
 
-### 4.5 Canonicalization Inconsistencies
+**Threat:** An attacker obtains or can use the private signing key.
 
-**Threat:** Different implementations of the canonicalization scheme produce different byte output for the same input, causing verification failures on legitimate artifacts or (worse) allowing two different bodies to produce the same canonical form.
+**Impact:** The attacker may create new artifacts that pass cryptographic artifact-validity checks.
 
-**Impact:** False verification failures on legitimate artifacts. In the worst case, canonicalization collisions could allow body substitution.
+**Mitigations:** Deployment controls may include HSM/KMS-backed signing, access controls, usage audit logs, rotation, signed status/revocation records, and external monitoring.
 
-**Attack vectors:**
-- Use of non-conforming canonicalization implementations
-- Edge cases in Unicode normalization or number serialization
-- Implementation bugs in RFC 8785 libraries
+**Residual risk:** Artifacts produced during an undetected compromise may remain cryptographically valid. Historical trust requires reliable compromise/revocation timing evidence.
 
-**Mitigation:**
-- CEYO mandates RFC 8785 (JSON Canonicalization Scheme), which is a well-defined standard with deterministic behavior
-- The `canonicalization.scheme` field declares the scheme used, enabling verifiers to select the correct implementation
-- Reference implementations SHOULD be validated against RFC 8785 test vectors
-- Operators SHOULD verify that their canonicalization library produces identical output to the reference implementation
+### 5.5 Capture suppression or pre-seal manipulation
 
-**Residual risk:** Low, given RFC 8785 is a narrowly scoped standard. Risk increases if implementations deviate from the standard or handle edge cases differently.
+**Threat:** An operator or attacker omits events, suppresses CEYO artifact generation, or changes source data before the protected object is created.
 
----
+**Mitigation:** CEYO alone cannot prevent a privileged operator from suppressing evidence. Complementary controls may include gateway enforcement, independent event counters, trusted execution, rate monitoring, external witnesses, or system audit logs.
 
-### 4.6 Artifact Suppression
+**Residual risk:** Cryptographic verification of an existing artifact does not prove completeness of the overall event record.
 
-**Threat:** An operator or attacker intentionally prevents artifact generation for certain events, removing evidence of those events entirely.
+### 5.6 Replay and contextual misuse
 
-**Impact:** Selective suppression creates gaps in the evidentiary record. Events that should have produced artifacts leave no trace.
+**Threat:** A genuine artifact is presented as evidence for a different request, system, time window, or event.
 
-**Attack vectors:**
-- Disabling the CEYO capture layer for specific event types
-- Filtering events before they reach the capture layer
-- Dropping artifacts before they reach storage
-- Selectively deleting artifacts from storage
+**Mitigations:** Signed artifact/event identifiers, source-asserted timestamps, request/correlation identifiers, policy references, and deployment context can support contextual checks. Verification profiles should enforce expected uniqueness and context where required.
 
-**Mitigation:**
-- CEYO cannot fully prevent artifact suppression by a compromised operator
-- Mitigation strategies include:
-  - Monitoring artifact generation rates for anomalous drops
-  - Maintaining independent audit logs of AI system activity
-  - Enforcing capture policies at infrastructure boundaries (e.g., API gateway)
-  - Using append-only or write-once storage systems
-  - Hash chaining in the artifact store makes deletion of individual artifacts detectable within the sequence
-- External artifact registries or third-party witnesses can provide independent records of artifact existence
+**Residual risk:** Basic signature verification cannot determine whether a valid artifact is being presented in the correct real-world context.
 
-**Residual risk:** Suppression by a privileged operator is fundamentally difficult to prevent. Detection mechanisms reduce but do not eliminate this risk.
+### 5.7 Canonicalization divergence
 
----
+**Threat:** Producer and verifier serialize the same logical JSON differently.
 
-### 4.7 Verification Abuse
+**Impact:** Legitimate artifacts may fail verification, or an implementation bug may create ambiguous processing behavior.
 
-**Threat:** An attacker exploits the verification system to produce false validation results — either false positives (invalid artifacts accepted) or false negatives (valid artifacts rejected).
+**Mitigations:** The canonicalization suite and version are signed inside `protected`; verifiers fail closed on unsupported schemes; RFC 8785 and any CEYO-specific profile should have normative cross-implementation test vectors.
 
-**Impact:** False positives undermine trust in the verification process. False negatives could be used to discredit legitimate artifacts.
+**Residual risk:** Implementation defects remain possible. The separately named deterministic fallback must not be misrepresented as RFC 8785.
 
-**Attack vectors:**
-- Submitting malformed artifacts designed to exploit parser vulnerabilities
-- Manipulating verification software or its dependencies
-- Bypassing verification steps through software bugs
-- Supplying incorrect public keys to cause false failures
+### 5.8 Schema/version confusion
 
-**Mitigation:**
-- Verification software MUST enforce strict schema validation before cryptographic verification
-- Verification MUST treat any validation error as a verification failure
-- Verification implementations SHOULD be tested against known-good and known-bad artifacts
-- Verification software SHOULD be subject to security review and dependency auditing
-- Verification libraries SHOULD reject malformed base64url, invalid DER encodings, and unexpected field types
+**Threat:** A verifier interprets an artifact under the wrong processing rules or body schema.
 
-**Residual risk:** Verification software quality is an implementation concern. The protocol defines the verification procedure; correctness depends on implementation fidelity.
+**Mitigation:** V2 signs both `protocol_version` and `artifact_schema`. The verifier selects processing semantics from the protocol version and validates the body against the declared supported schema.
 
----
+**Residual risk:** Implementations that disable schema checks or silently coerce unknown versions may reintroduce ambiguity. Production profiles should fail closed on unsupported versions.
 
-### 4.8 Storage Manipulation
+### 5.9 Receipt spoofing or tampering
 
-**Threat:** An attacker modifies artifact records after they are stored — altering, deleting, or reordering artifacts in the storage system.
+**Threat:** An attacker appends an arbitrary object to `receipts`, modifies a legitimate receipt, or presents a receipt for the wrong artifact.
 
-**Impact:** If artifacts in storage are modified, the stored record no longer reflects the original sealed artifacts. If modifications go undetected, the evidentiary chain is broken.
+**Mitigation:** Receipts do not affect basic artifact validity. A trust profile must validate a recognized receipt type, subject binding, issuer/key, signature/proof, and profile-specific requirements before relying on it.
 
-**Attack vectors:**
-- Direct database modification
-- File system alteration of stored artifact JSON
-- Backup restoration that overwrites newer artifacts
-- Storage system compromise
+**Residual risk:** Until typed receipt schemas and validators are defined, receipt presence alone carries no trust weight.
 
-**Mitigation:**
-- Cryptographic verification detects modifications to individual artifacts regardless of storage
-- The artifact store implements hash chaining — each entry's chain hash covers the previous entry, creating a tamper-evident sequence
-- Operators SHOULD use append-only or write-once storage systems
-- Operators SHOULD maintain replicated copies of artifact stores
-- Operators SHOULD periodically verify stored artifact integrity
+### 5.10 Artifact-store modification
 
-**Residual risk:** Storage manipulation is detectable through verification and chain hash validation, but prevention depends on storage infrastructure security.
+**Threat:** An attacker changes, deletes, reorders, or rolls back locally stored artifacts.
 
----
+**Mitigations:** Individual artifacts remain independently verifiable. The reference store also hashes each stored envelope and chains rows by sequence number.
 
-### 4.9 Availability Attacks
+**Residual risk:** Local hash chaining is not an externally witnessed append-only guarantee. Tail truncation or rollback to an earlier internally consistent state can remain undetected unless a later chain head/count/checkpoint is anchored elsewhere.
 
-**Threat:** An attacker disrupts artifact generation or verification infrastructure through denial-of-service attacks, storage disruption, or verification service interruption.
+### 5.11 Transparency-log equivocation
 
-**Impact:** Artifacts cannot be generated or verified during the disruption. If the AI system is coupled to artifact generation, availability attacks could affect inference.
+**Threat:** A log operator presents different signed tree states to different verifiers or replays an older valid checkpoint.
 
-**Attack vectors:**
-- Denial-of-service attacks against verification endpoints
-- Storage system disruption (disk exhaustion, network partition)
-- Key management service unavailability
-- Compute resource exhaustion during sealing
+**Mitigations currently available:** Signed checkpoints and Merkle inclusion proofs authenticate membership relative to a supplied checkpoint.
 
-**Mitigation:**
-- CEYO is designed to be fail-open: artifact generation failures MUST NOT block inference operations
-- The sealing pipeline operates locally and does not depend on external network services (unless using KMS-backed keys)
-- Verification infrastructure MAY be distributed for redundancy
-- Artifact stores MAY be replicated across availability zones
-- Operators SHOULD monitor artifact generation and verification service health
+**Not yet provided by basic inclusion proofs:** global consistency, freshness, anti-equivocation, or non-replay.
 
-**Residual risk:** Availability depends on infrastructure resilience. CEYO's fail-open design ensures AI system availability is not affected, but artifact coverage may have gaps during outages.
+**Further controls:** consistency proofs, witnesses, monitors, gossip, monotonic externally anchored state, or independent checkpoint publication.
 
----
+### 5.12 Checkpoint timestamp overclaim
 
-## 5. Out-of-Scope Threats
+**Threat:** A verifier treats a signed checkpoint timestamp as independently trusted time merely because the checkpoint is signed.
 
-CEYO does not address the following threat categories:
+**Mitigation:** Documentation and trust profiles must treat checkpoint time as an assertion of the checkpoint signer unless independently anchored.
 
-| Threat | Reason |
-|---|---|
-| Correctness of AI model outputs | CEYO records decisions, it does not evaluate them |
-| Bias or fairness in AI decisions | CEYO is evidence infrastructure, not a fairness tool |
-| Regulatory compliance evaluation | CEYO provides evidence; compliance determination is a governance function |
-| Adversarial attacks against AI models | Model robustness is outside the artifact pipeline |
-| Training data poisoning | Training-time threats are outside CEYO's scope |
-| Privacy of model inputs/outputs | CEYO captures policy-scoped references, not raw data; data privacy is governed by capture policy |
+### 5.13 Verification implementation abuse
 
----
+**Threat:** Malformed artifacts, malformed DER/base64url, unsupported algorithms, parser edge cases, or disabled validation cause false acceptance or crashes.
 
-## 6. Security Assumptions
+**Mitigations:** Strict schema validation, algorithm whitelisting, P-256 enforcement, bounded proof structures, timing-safe comparisons for digests, negative tests, fuzzing, dependency review, and independent implementation comparison.
 
-The CEYO threat model assumes:
+**Residual risk:** Verification reliability ultimately depends on implementation quality.
 
-1. **Signing keys are securely managed** by the system operator using appropriate key management infrastructure
-2. **Canonicalization is correctly implemented** using a conforming RFC 8785 library
-3. **Verification software faithfully implements** the verification procedure defined in the protocol specification
-4. **Capture policies are correctly enforced** by the system operator
-5. **Cryptographic primitives are sound** — SHA-256 and ECDSA P-256 provide their stated security properties
+### 5.14 Availability failures
 
-Violations of these assumptions may compromise artifact reliability.
+**Threat:** Artifact generation, key services, storage, or verification infrastructure becomes unavailable.
 
----
+**Mitigation:** Availability behavior is deployment policy, not a universal protocol guarantee. Some deployments may choose fail-open inference; others may require fail-closed evidence production for specific workflows.
 
-## 7. Summary
+**Residual risk:** A fail-open deployment preserves application availability at the cost of potential evidence gaps. A fail-closed deployment may affect application availability.
 
-| Threat | Severity | Mitigated By |
-|---|---|---|
-| Artifact Tampering | High | SHA-256 hash + ECDSA signature |
-| Replay Attacks | Medium | Unique IDs, timestamps, sequence numbers |
-| Signing Key Compromise | Critical | HSM/KMS, key rotation, key revocation |
-| Schema Manipulation | Medium | Schema versioning, change control |
-| Canonicalization Inconsistencies | Low | RFC 8785 standard, test vectors |
-| Artifact Suppression | High | Monitoring, append-only storage, hash chaining |
-| Verification Abuse | Medium | Strict validation, security review |
-| Storage Manipulation | Medium | Hash chaining, append-only storage, replication |
-| Availability Attacks | Medium | Fail-open design, redundancy |
+## 6. Legacy-v1 risk boundary
 
-CEYO provides cryptographically verifiable artifacts that enable independent validation of AI system event records. The architecture mitigates integrity and authenticity threats through deterministic canonicalization and cryptographic sealing. Operational threats (suppression, availability, key management) require complementary infrastructure and governance controls.
+Protocol v1 signed only `canonical(body)`. Artifact-level metadata outside that scope did not receive the same integrity guarantee.
+
+V1 remains verifiable according to its original semantics and must not be upgraded by rewriting history. A later attestation can add new evidence about the exact v1 artifact digest, but it cannot make previously unsigned fields historically signer-bound.
+
+## 7. Assumptions
+
+CEYO's conclusions rely on assumptions including:
+
+1. cryptographic primitives behave according to their expected security properties;
+2. private keys are protected according to the deployment's assurance requirements;
+3. verifiers correctly implement the declared canonicalization and signature suites;
+4. schema/version handling fails closed for unsupported formats;
+5. external trust/status/time evidence is authenticated before influencing trust;
+6. capture-policy and deployment controls are evaluated separately from basic artifact cryptography.
+
+## 8. Out of scope for basic artifact validity
+
+Basic artifact verification does not establish:
+
+- correctness of AI model outputs;
+- fairness or absence of bias;
+- regulatory compliance;
+- legal admissibility;
+- completeness of the event record;
+- objective real-world event truth;
+- independent accuracy of signer timestamps;
+- authorization of an otherwise valid key;
+- global transparency-log consistency.
+
+## 9. Review priorities
+
+Before production use, priority review areas include:
+
+- cross-implementation canonicalization vectors;
+- complete mutation tests over every protected field;
+- unsupported-version/fail-closed behavior;
+- typed receipt schemas and receipt validators;
+- historical revocation/status semantics;
+- external-time profile;
+- transparency consistency/witness model;
+- storage rollback/tail-truncation anchoring;
+- independent cryptography/security review.

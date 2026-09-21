@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ceyo:transparency-checkpoint:1.0",
   "title": "CEYO Transparency Log Checkpoint",
-  "description": "A signed snapshot of the Merkle tree root at a given tree size. Produced by TransparencyLog.checkpoint() and verified by ceyo_verify.transparency.verify_inclusion_proof().",
+  "description": "A signed assertion of a Merkle tree root and tree size. A valid checkpoint authenticates the signed checkpoint body under an externally selected verification key; it does not by itself establish freshness, global consistency, or independently trusted time.",
   "type": "object",
   "required": ["product", "type", "tree_size", "root_hash", "created_at", "sig", "key_reference"],
   "additionalProperties": false,
@@ -20,7 +20,7 @@
     "tree_size": {
       "type": "integer",
       "minimum": 0,
-      "description": "Number of log entries (leaves) in the Merkle tree at the time this checkpoint was created."
+      "description": "Number of log entries represented by the signed root."
     },
     "root_hash": {
       "type": "string",
@@ -30,98 +30,69 @@
     "created_at": {
       "type": "string",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
-      "description": "ISO 8601 UTC timestamp when this checkpoint was created. Included in the signed body to prevent replay."
+      "description": "Signer-asserted checkpoint creation time. It is covered by the checkpoint signature, so later editing is detectable; signing alone does not prevent replay of the entire checkpoint or prove clock accuracy."
     },
     "sig": {
       "type": "object",
-      "description": "ECDSA-P256-SHA256 signature over canonical(checkpoint_body).",
+      "description": "ECDSA-P256-SHA256 signature over the RFC 8785 canonical form of checkpoint_body. The legacy descriptor string remains accepted for checkpoint-format compatibility.",
       "required": ["alg", "format", "value_b64u", "covers"],
       "additionalProperties": false,
       "properties": {
         "alg": {
           "type": "string",
-          "const": "ECDSA-P256-SHA256",
-          "description": "Signature algorithm."
+          "const": "ECDSA-P256-SHA256"
         },
         "format": {
           "type": "string",
-          "const": "DER",
-          "description": "Signature encoding format."
+          "const": "DER"
         },
         "value_b64u": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]+$",
-          "description": "Base64url-encoded DER-encoded ECDSA signature."
+          "pattern": "^[A-Za-z0-9_-]+$"
         },
         "covers": {
           "type": "string",
-          "const": "canonical(checkpoint_body)",
-          "description": "Description of what this signature covers."
+          "enum": [
+            "canonical(checkpoint_body)",
+            "RFC8785(checkpoint_body)"
+          ],
+          "description": "New checkpoints use RFC8785(checkpoint_body). canonical(checkpoint_body) is retained only as the legacy descriptor for checkpoints generated before the canonicalization profile was made explicit."
         }
       }
     },
     "key_reference": {
       "type": "object",
-      "description": "Reference to the signing key.",
+      "description": "Descriptive reference to the checkpoint signing key. In checkpoint format 1.0 this object is outside the signed checkpoint body; verifiers must obtain the trusted checkpoint public key through an external trust path and must not treat this field alone as authenticated signer identity.",
       "required": ["registry", "key_id", "public_key_fingerprint"],
       "additionalProperties": false,
       "properties": {
         "registry": {
-          "type": "string",
-          "description": "Key registry type (e.g. 'local', 'memory', 'kms')."
+          "type": "string"
         },
         "key_id": {
-          "type": "string",
-          "description": "Key identifier within the registry."
+          "type": "string"
         },
         "public_key_fingerprint": {
           "type": "object",
-          "description": "SHA-256 fingerprint of the public key's SPKI DER encoding.",
+          "description": "SHA-256 fingerprint of the public key SPKI DER. The standalone verifier may use it as a consistency check against the externally supplied checkpoint key.",
           "required": ["alg", "value_b64u", "covers"],
           "additionalProperties": false,
           "properties": {
             "alg": {
               "type": "string",
-              "const": "SHA-256",
-              "description": "Fingerprint hash algorithm."
+              "const": "SHA-256"
             },
             "value_b64u": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_-]+$",
-              "description": "Base64url-encoded SHA-256 digest of public key SPKI DER bytes."
+              "pattern": "^[A-Za-z0-9_-]+$"
             },
             "covers": {
               "type": "string",
-              "const": "public_key_spki_der",
-              "description": "What the fingerprint covers."
+              "const": "public_key_spki_der"
             }
           }
         }
       }
     }
-  },
-  "examples": [
-    {
-      "product": "CEYO",
-      "type": "transparency-checkpoint",
-      "tree_size": 42,
-      "root_hash": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoA",
-      "created_at": "2026-03-13T12:00:00Z",
-      "sig": {
-        "alg": "ECDSA-P256-SHA256",
-        "format": "DER",
-        "value_b64u": "MEYCIQC...",
-        "covers": "canonical(checkpoint_body)"
-      },
-      "key_reference": {
-        "registry": "local",
-        "key_id": "local:ceyo_private.pem",
-        "public_key_fingerprint": {
-          "alg": "SHA-256",
-          "value_b64u": "dGVzdGtleWZpbmdlcnByaW50AA",
-          "covers": "public_key_spki_der"
-        }
-      }
-    }
-  ]
+  }
 }
