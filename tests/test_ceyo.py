@@ -27,9 +27,9 @@ from ceyo.transparency_log import (
     compute_inclusion_proof,
     compute_root,
 )
-from ceyo_verify.transparency import verify_inclusion_proof
 from ceyo.verify import verify_artifact
 from ceyo_verify import verify_artifact as standalone_verify
+from ceyo_verify.transparency import verify_inclusion_proof
 
 # ---------------------------------------------------------------------------
 # Crypto primitives
