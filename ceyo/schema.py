@@ -48,7 +48,7 @@ ENVELOPE_SCHEMA: dict[str, Any] = {
         "created_at": {
             "type": "string",
             "format": "date-time",
-            "pattern": r"^[12]\d{3}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,6})?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$",
+            "pattern": _DATETIME_RE.pattern,
         },
         "body": {"type": "object"},
         "canonicalization": {
@@ -122,7 +122,7 @@ BODY_SCHEMA: dict[str, Any] = {
                 "occurred_at": {
                     "type": "string",
                     "format": "date-time",
-                    "pattern": r"^[12]\d{3}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,6})?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$",
+                    "pattern": _DATETIME_RE.pattern,
                 },
                 "request_id": {"type": "string"},
             },
